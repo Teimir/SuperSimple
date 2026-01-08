@@ -402,6 +402,96 @@ class TestInterpreter(unittest.TestCase):
         # i=2: j=0 (i!=j, +2), j=1 (i!=j, +2) -> +4
         # Total: 3 + 3 + 4 = 10
         self.assertEqual(result, 10)
+    
+    def test_hex_literal_basic(self):
+        """Test basic hex literal execution."""
+        source = "function main() { return 0xFF; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 255)  # 0xFF = 255
+        
+        source = "function main() { return 0x10; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 16)  # 0x10 = 16
+    
+    def test_hex_literal_variable(self):
+        """Test hex literal in variable declaration and assignment."""
+        source = "function main() { uint32 x = 0xFF; return x; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 255)
+        
+        source = "function main() { uint32 x; x = 0xABCD; return x; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 43981)  # 0xABCD = 43981
+    
+    def test_hex_literal_expressions(self):
+        """Test hex literals in expressions."""
+        source = "function main() { return 0xFF + 0x01; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 256)  # 255 + 1 = 256
+        
+        source = "function main() { return 0x10 * 0x02; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 32)  # 16 * 2 = 32
+        
+        source = "function main() { return 0xFF & 0x0F; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 15)  # 255 & 15 = 15
+        
+        source = "function main() { return 0xAA | 0x55; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 255)  # 170 | 85 = 255
+    
+    def test_hex_literal_uppercase_prefix(self):
+        """Test hex literal with uppercase prefix (0X)."""
+        source = "function main() { return 0XFF; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 255)
+    
+    def test_hex_literal_mixed_case(self):
+        """Test hex literal with mixed case digits."""
+        source = "function main() { return 0xAbCd; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 43981)  # 0xAbCd = 43981
+        
+        source = "function main() { return 0XaBcD; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 43981)
+    
+    def test_hex_literal_boundary_values(self):
+        """Test hex literal boundary values."""
+        source = "function main() { return 0x0; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 0)
+        
+        source = "function main() { return 0xFFFFFFFF; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 0xFFFFFFFF)  # Maximum uint32 value
+    
+    def test_hex_literal_in_loop(self):
+        """Test hex literals in loop conditions."""
+        source = """
+        function main() {
+            uint32 sum = 0;
+            uint32 i;
+            for (i = 0x00; i < 0x05; i++) {
+                sum = sum + i;
+            }
+            return sum;
+        }
+        """
+        result = self.interpret_source(source)
+        # Sum of 0 + 1 + 2 + 3 + 4 = 10
+        self.assertEqual(result, 10)
+    
+    def test_hex_literal_with_decimal(self):
+        """Test mixing hex and decimal literals."""
+        source = "function main() { return 0xFF + 1; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 256)  # 255 + 1 = 256
+        
+        source = "function main() { return 16 + 0x10; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 32)  # 16 + 16 = 32
 
 
 if __name__ == '__main__':

@@ -53,6 +53,8 @@ class TokenType(Enum):
     BITWISE_AND = "BITWISE_AND"
     BITWISE_OR = "BITWISE_OR"
     BITWISE_XOR = "BITWISE_XOR"
+    SHIFT_LEFT = "SHIFT_LEFT"
+    SHIFT_RIGHT = "SHIFT_RIGHT"
     INCREMENT = "INCREMENT"
     DECREMENT = "DECREMENT"
     
@@ -158,8 +160,22 @@ class Lexer:
         return self.source[start:self.pos]
     
     def read_number(self) -> str:
-        """Read a numeric literal."""
+        """Read a numeric literal (decimal or hexadecimal)."""
         start = self.pos
+        
+        # Check for hex prefix: 0x or 0X
+        if self.current_char() == '0':
+            peek = self.peek_char()
+            if peek in ['x', 'X']:
+                # It's a hex literal: consume '0' and 'x'/'X'
+                self.advance()  # consume '0'
+                self.advance()  # consume 'x' or 'X'
+                # Read hex digits
+                while self.current_char() and self.current_char() in '0123456789ABCDEFabcdef':
+                    self.advance()
+                return self.source[start:self.pos]
+        
+        # Decimal number (includes standalone '0')
         while self.current_char() and self.current_char().isdigit():
             self.advance()
         return self.source[start:self.pos]
@@ -222,6 +238,27 @@ class Lexer:
                 self.advance()
                 self.advance()
                 self.tokens.append(Token(TokenType.NOT_EQUAL, "!=", line, column))
+                continue
+            
+            # Check for shift operators BEFORE <= and >= to ensure correct precedence
+            if char == '<' and self.peek_char() == '<':
+                self.advance()
+                self.advance()
+                # #region agent log
+                with open('e:\\aiproj\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
+                    f.write('{"id":"log_lexer_shift_left_token","timestamp":' + str(int(__import__('time').time() * 1000)) + ',"location":"lexer.py:229","message":"Tokenizing shift left operator","data":{"operator":"<<"},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"A"}\n')
+                # #endregion agent log
+                self.tokens.append(Token(TokenType.SHIFT_LEFT, "<<", line, column))
+                continue
+            
+            if char == '>' and self.peek_char() == '>':
+                self.advance()
+                self.advance()
+                # #region agent log
+                with open('e:\\aiproj\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
+                    f.write('{"id":"log_lexer_shift_right_token","timestamp":' + str(int(__import__('time').time() * 1000)) + ',"location":"lexer.py:237","message":"Tokenizing shift right operator","data":{"operator":">>"},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"A"}\n')
+                # #endregion agent log
+                self.tokens.append(Token(TokenType.SHIFT_RIGHT, ">>", line, column))
                 continue
             
             if char == '<' and self.peek_char() == '=':

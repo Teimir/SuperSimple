@@ -321,6 +321,100 @@ class TestParser(unittest.TestCase):
         
         with self.assertRaises(SyntaxError):
             self.parse_source(source)
+    
+    def test_hex_literal_in_variable_declaration(self):
+        """Test parsing hex literal in variable declaration."""
+        source = "function main() { uint32 x = 0xFF; return 0; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        var_decl = main_body[0]
+        self.assertIsInstance(var_decl, VarDecl)
+        self.assertIsInstance(var_decl.initializer, Literal)
+        self.assertEqual(var_decl.initializer.value, 255)  # 0xFF = 255
+    
+    def test_hex_literal_in_assignment(self):
+        """Test parsing hex literal in assignment."""
+        source = "function main() { uint32 x; x = 0x10; return 0; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        assignment = main_body[1]
+        self.assertIsInstance(assignment, Assignment)
+        self.assertIsInstance(assignment.value, Literal)
+        self.assertEqual(assignment.value.value, 16)  # 0x10 = 16
+    
+    def test_hex_literal_in_expression(self):
+        """Test parsing hex literals in expressions."""
+        source = "function main() { uint32 x = 0xFF + 0x01; return 0; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        var_decl = main_body[0]
+        expr = var_decl.initializer
+        self.assertIsInstance(expr, BinaryOp)
+        self.assertEqual(expr.op, "+")
+        # Left operand should be 0xFF = 255
+        self.assertIsInstance(expr.left, Literal)
+        self.assertEqual(expr.left.value, 255)
+        # Right operand should be 0x01 = 1
+        self.assertIsInstance(expr.right, Literal)
+        self.assertEqual(expr.right.value, 1)
+    
+    def test_hex_literal_in_return(self):
+        """Test parsing hex literal in return statement."""
+        source = "function main() { return 0xABCD; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        return_stmt = main_body[0]
+        self.assertIsInstance(return_stmt, Return)
+        self.assertIsInstance(return_stmt.value, Literal)
+        self.assertEqual(return_stmt.value.value, 43981)  # 0xABCD = 43981
+    
+    def test_hex_literal_uppercase_prefix(self):
+        """Test parsing hex literal with uppercase prefix (0X)."""
+        source = "function main() { uint32 x = 0XFF; return 0; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        var_decl = main_body[0]
+        self.assertIsInstance(var_decl.initializer, Literal)
+        self.assertEqual(var_decl.initializer.value, 255)
+    
+    def test_hex_literal_mixed_case(self):
+        """Test parsing hex literal with mixed case digits."""
+        source = "function main() { uint32 x = 0xAbCd; return 0; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        var_decl = main_body[0]
+        self.assertIsInstance(var_decl.initializer, Literal)
+        self.assertEqual(var_decl.initializer.value, 43981)  # 0xAbCd = 43981
+    
+    def test_hex_literal_bitwise_operations(self):
+        """Test hex literals in bitwise operations."""
+        source = "function main() { uint32 x = 0xFF & 0x0F; return 0; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        var_decl = main_body[0]
+        expr = var_decl.initializer
+        self.assertIsInstance(expr, BinaryOp)
+        self.assertEqual(expr.op, "&")
+        self.assertEqual(expr.left.value, 255)  # 0xFF
+        self.assertEqual(expr.right.value, 15)  # 0x0F
+    
+    def test_hex_literal_boundary_values(self):
+        """Test hex literal boundary values."""
+        source = "function main() { uint32 x = 0x0; uint32 y = 0xFFFFFFFF; return 0; }"
+        program = self.parse_source(source)
+        
+        main_body = program.functions[0].body.statements
+        var_decl1 = main_body[0]
+        self.assertEqual(var_decl1.initializer.value, 0)
+        var_decl2 = main_body[1]
+        self.assertEqual(var_decl2.initializer.value, 0xFFFFFFFF)
 
 
 if __name__ == '__main__':

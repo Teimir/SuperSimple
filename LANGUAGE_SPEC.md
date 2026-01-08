@@ -4,6 +4,8 @@
 
 This is a simple, C-style programming language with a minimal feature set. The language is designed for educational purposes and focuses on core programming concepts with a restricted type system.
 
+> **See also**: [ARCHITECTURE.md](../ARCHITECTURE.md) for system architecture and design details.
+
 ## Key Features
 
 - **Single Data Type**: Only 32-bit unsigned integers (`uint32`) are supported

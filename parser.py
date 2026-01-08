@@ -1,6 +1,16 @@
 """
 Parser for Simple C-Style Language
-Builds an Abstract Syntax Tree (AST) from tokens.
+
+This module builds an Abstract Syntax Tree (AST) from a stream of tokens.
+The parser uses recursive descent parsing to construct the AST.
+
+AST Node Types:
+- Program: Root node containing all functions
+- FunctionDef: Function definitions
+- Statement nodes: VarDecl, Assignment, IfStmt, WhileStmt, ForStmt, ReturnStmt, Block
+- Expression nodes: Literal, Identifier, BinaryOp, UnaryOp, FunctionCall
+
+The parser handles operator precedence and associativity correctly.
 """
 
 from typing import List, Optional, Union

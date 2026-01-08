@@ -9,7 +9,12 @@ A minimal, educational C-style programming language with support for:
 
 ## Documentation
 
-See [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) for complete language specification and grammar.
+- **[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md)** - Complete language specification and grammar
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design overview
+- **[INCLUDE_MECHANISM.md](INCLUDE_MECHANISM.md)** - Detailed explanation of how `#include` directives work
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development guidelines and contribution instructions
+- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Project file organization
+- **[examples/README.md](examples/README.md)** - Examples directory structure and descriptions
 
 ## Installation
 
@@ -77,21 +82,42 @@ See `examples/README.md` for detailed descriptions.
 
 ## Project Structure
 
-- `lexer.py` - Tokenizer that converts source code to tokens
-- `parser.py` - Parser that builds an Abstract Syntax Tree (AST)
-- `interpreter.py` - Interpreter that executes the AST
-- `preprocessor.py` - Preprocessor that handles #include directives
-- `main.py` - Main entry point
-- `LANGUAGE_SPEC.md` - Complete language specification
-- `examples/` - Example programs
-- `test/` - Test programs
+```
+aiproj/
+├── main.py                 # Main entry point
+├── lexer.py                # Tokenizer (source → tokens)
+├── parser.py               # Parser (tokens → AST)
+├── interpreter.py          # Interpreter (AST → execution)
+├── preprocessor.py         # Preprocessor (#include handling)
+│
+├── LANGUAGE_SPEC.md        # Complete language specification
+├── INCLUDE_MECHANISM.md    # #include directive documentation
+├── README.md               # This file
+│
+├── examples/               # Example programs
+│   ├── basic/             # Basic programming examples
+│   ├── hardware/          # Hardware/MCU examples
+│   ├── operators/         # Operator testing examples
+│   ├── includes/          # Include directive examples
+│   └── advanced/          # Advanced programming examples
+│
+├── test/                   # Test programs
+│
+└── test_*.py              # Unit tests
+    ├── test_lexer.py
+    ├── test_parser.py
+    ├── test_interpreter.py
+    ├── test_preprocessor.py
+    └── run_tests.py       # Test runner
+```
 
-### Test Files
-- `test_lexer.py` - Unit tests for the lexer
-- `test_parser.py` - Unit tests for the parser
-- `test_interpreter.py` - Unit tests for the interpreter
-- `test_preprocessor.py` - Unit tests for the preprocessor
-- `run_tests.py` - Test runner script
+### Core Components
+
+- **`lexer.py`** - Converts source code into a stream of tokens
+- **`parser.py`** - Builds an Abstract Syntax Tree (AST) from tokens
+- **`interpreter.py`** - Executes the AST and manages runtime state
+- **`preprocessor.py`** - Handles `#include` directives before lexing
+- **`main.py`** - Orchestrates the compilation pipeline
 
 ## Features
 
@@ -124,11 +150,11 @@ See `examples/README.md` for detailed descriptions.
 - **Delay Functions**: Software delays (delay_ms, delay_us, delay_cycles)
 
 ### Operators
-- Arithmetic: `+`, `-`, `*`, `/`, `%`
-- Bitwise: `&`, `|`, `^`, `~`
-- Increment/Decrement: `++`, `--` (both prefix and postfix)
-- Relational: `==`, `!=`, `<`, `<=`, `>`, `>=`
-- Logical: `&&`, `||`, `!`
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%`
+- **Bitwise**: `&`, `|`, `^`, `~`, `<<`, `>>`
+- **Increment/Decrement**: `++`, `--` (both prefix and postfix)
+- **Relational**: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- **Logical**: `&&`, `||`, `!`
 
 ## Quick Example
 
@@ -176,6 +202,11 @@ All tests use Python's built-in `unittest` framework - no external dependencies 
 - Single data type only (uint32)
 - Division by zero causes runtime error
 - Integer overflow wraps around (modulo 2^32)
+- No `#define` macro support (only `#include` is supported)
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and contribution instructions.
 
 ## License
 

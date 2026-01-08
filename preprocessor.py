@@ -1,6 +1,14 @@
 """
 Preprocessor for handling #include directives.
-Processes include files before lexing/parsing.
+
+This module processes source files before lexing and parsing. It:
+- Expands #include directives by inserting file contents
+- Handles nested includes recursively
+- Detects circular include dependencies
+- Resolves file paths (relative and absolute)
+- Adds debug comments to track included files
+
+The preprocessor is the first stage in the compilation pipeline.
 """
 
 import os

@@ -1,6 +1,15 @@
 """
 Lexer (Tokenizer) for Simple C-Style Language
-Converts source code into a stream of tokens.
+
+This module converts source code into a stream of tokens. The lexer recognizes:
+- Keywords (function, uint32, if, else, while, for, return, etc.)
+- Operators (arithmetic, logical, relational, bitwise)
+- Identifiers (variable and function names)
+- Literals (integer constants)
+- Punctuation (semicolons, commas, parentheses, braces)
+- Comments (single-line and multi-line)
+
+The lexer tracks line and column numbers for error reporting.
 """
 
 import re

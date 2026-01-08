@@ -1,6 +1,20 @@
 """
 Interpreter for Simple C-Style Language
-Evaluates the AST and executes the program.
+
+This module evaluates the AST and executes the program. The interpreter:
+- Manages variable scoping through Environment objects
+- Executes control flow statements (if, while, for)
+- Handles function calls and recursion
+- Provides built-in hardware functions (GPIO, UART, Timer)
+- Simulates CPU registers (r0-r31)
+- Supports interrupt service routines (ISRs)
+
+Runtime State:
+- global_env: Global variable environment
+- functions: Dictionary of function definitions
+- registers: Array of 32 CPU registers
+- interrupt_handlers: Dictionary of ISR functions
+- Hardware state: GPIO, UART, Timer simulation
 """
 
 from typing import Dict, Optional, List, Any

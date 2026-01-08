@@ -11,6 +11,7 @@ This is a simple, C-style programming language with a minimal feature set. The l
 - **Control Flow**: `for` and `while` loops
 - **Expressions**: Arithmetic and logical operations
 - **Statements**: Variable declarations, assignments, function calls, and control flow
+- **File Includes**: `#include` directive for modular code organization
 
 ## Data Types
 
@@ -71,6 +72,8 @@ return    (return statement)
 
 **Assignment:**
 - `=` (assignment)
+- `++` (increment)
+- `--` (decrement)
 
 ### Punctuation
 
@@ -83,6 +86,31 @@ return    (return statement)
 
 - Single-line comments: `// comment text`
 - Multi-line comments: `/* comment text */`
+
+### Preprocessor Directives
+
+- Include directive: `#include "filename"` or `#include <filename>`
+  - Includes the contents of another source file at the point of the directive
+  - Relative paths are resolved relative to the current file's directory
+  - Supports nested includes
+  - Circular includes are detected and raise an error
+  - Example: `#include "utils.sc"`
+
+#### Include Examples
+
+```c
+// File: utils.sc
+function add(a, b) {
+    return a + b;
+}
+
+// File: main.sc
+#include "utils.sc"
+
+function main() {
+    return add(5, 3);  // returns 8
+}
+```
 
 ## Syntax
 
@@ -114,6 +142,30 @@ Variables are assigned using the `=` operator.
 x = 10;
 x = x + 1;
 x = y * 2;
+```
+
+### Increment and Decrement
+
+Variables can be incremented or decremented using `++` and `--` operators. Both prefix and postfix forms are supported.
+
+```c
+uint32 x = 5;
+++x;    // prefix increment: x becomes 6
+x++;    // postfix increment: x becomes 7
+--x;    // prefix decrement: x becomes 6
+x--;    // postfix decrement: x becomes 5
+```
+
+Increment and decrement operators can also be used in `for` loop increments:
+
+```c
+for (uint32 i = 0; i < 10; i++) {
+    // loop body
+}
+
+for (uint32 i = 10; i > 0; i--) {
+    // loop body
+}
 ```
 
 ### Expressions
@@ -324,6 +376,28 @@ function fibonacci(n) {
 
 function main() {
     return fibonacci(10);  // returns 55
+}
+```
+
+### Example 6: Using Include Directives
+
+```c
+// File: math_lib.sc
+function multiply(a, b) {
+    return a * b;
+}
+
+function square(x) {
+    return x * x;
+}
+
+// File: main.sc
+#include "math_lib.sc"
+
+function main() {
+    uint32 result = multiply(5, 3);
+    result = result + square(4);
+    return result;  // 15 + 16 = 31
 }
 ```
 

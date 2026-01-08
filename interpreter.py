@@ -8,7 +8,7 @@ from parser import (
     Program, FunctionDef, Statement, Expression,
     Literal, Identifier, BinaryOp, UnaryOp, FunctionCall,
     VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
-    Block, FunctionCallStmt
+    Block, FunctionCallStmt, Increment, Decrement
 )
 
 
@@ -105,6 +105,10 @@ class Interpreter:
             self.execute_var_decl(stmt, env)
         elif isinstance(stmt, Assignment):
             self.execute_assignment(stmt, env)
+        elif isinstance(stmt, Increment):
+            self.execute_increment(stmt, env)
+        elif isinstance(stmt, Decrement):
+            self.execute_decrement(stmt, env)
         elif isinstance(stmt, Return):
             self.execute_return(stmt, env)
         elif isinstance(stmt, IfStmt):
@@ -138,6 +142,18 @@ class Interpreter:
         """Execute an assignment."""
         value = self.evaluate_expression(assignment.value, env)
         env.assign(assignment.name, value)
+    
+    def execute_increment(self, increment: Increment, env: Environment):
+        """Execute an increment statement (++x or x++)."""
+        current_value = env.get(increment.name)
+        new_value = (current_value + 1) & 0xFFFFFFFF
+        env.assign(increment.name, new_value)
+    
+    def execute_decrement(self, decrement: Decrement, env: Environment):
+        """Execute a decrement statement (--x or x--)."""
+        current_value = env.get(decrement.name)
+        new_value = (current_value - 1) & 0xFFFFFFFF
+        env.assign(decrement.name, new_value)
     
     def execute_return(self, ret: Return, env: Environment):
         """Execute a return statement."""
@@ -186,7 +202,7 @@ class Interpreter:
             
             # Increment
             if for_stmt.increment:
-                self.execute_assignment(for_stmt.increment, for_env)
+                self.execute_statement(for_stmt.increment, for_env)
     
     def execute_function_call(self, call: FunctionCall, env: Environment) -> int:
         """Execute a function call and return its value."""

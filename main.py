@@ -3,9 +3,11 @@ Main entry point for the Simple C-Style Language interpreter.
 """
 
 import sys
+import os
 from lexer import Lexer, TokenType
 from parser import Parser
 from interpreter import Interpreter, RuntimeError
+from preprocessor import Preprocessor, PreprocessingError
 
 
 def main():
@@ -17,9 +19,13 @@ def main():
     source_file = sys.argv[1]
     
     try:
-        # Read source file
-        with open(source_file, 'r') as f:
-            source_code = f.read()
+        # Preprocess (handle #include directives)
+        preprocessor = Preprocessor()
+        try:
+            source_code = preprocessor.preprocess(source_file)
+        except PreprocessingError as e:
+            print(f"Preprocessing error: {e}")
+            sys.exit(1)
         
         # Tokenize
         lexer = Lexer(source_code)

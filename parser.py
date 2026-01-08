@@ -67,14 +67,24 @@ class Statement(ASTNode):
 
 
 class VarDecl(Statement):
-    def __init__(self, name: str, initializer: Optional[Expression] = None):
+    def __init__(self, name: str, initializer: Optional[Expression] = None, 
+                 is_register: bool = False, is_volatile: bool = False, register_num: Optional[int] = None):
         self.name = name
         self.initializer = initializer
+        self.is_register = is_register
+        self.is_volatile = is_volatile
+        self.register_num = register_num  # For register variables: 0-31
     
     def __repr__(self):
+        attrs = []
+        if self.is_register:
+            attrs.append(f"register={self.register_num}")
+        if self.is_volatile:
+            attrs.append("volatile")
+        attr_str = ", " + ", ".join(attrs) if attrs else ""
         if self.initializer:
-            return f"VarDecl({self.name}, {self.initializer})"
-        return f"VarDecl({self.name})"
+            return f"VarDecl({self.name}, {self.initializer}{attr_str})"
+        return f"VarDecl({self.name}{attr_str})"
 
 
 class Assignment(Statement):
@@ -115,10 +125,10 @@ class WhileStmt(Statement):
 
 class ForStmt(Statement):
     def __init__(self, init: Optional[Statement], condition: Optional[Expression], 
-                 increment: Optional[Assignment], body: Statement):
+                 increment: Optional[Statement], body: Statement):
         self.init = init
         self.condition = condition
-        self.increment = increment
+        self.increment = increment  # Can be Assignment, Increment, or Decrement
         self.body = body
     
     def __repr__(self):
@@ -142,14 +152,38 @@ class FunctionCallStmt(Statement):
         return f"FunctionCallStmt({self.call})"
 
 
+class Increment(Statement):
+    """Increment statement (++x or x++)."""
+    def __init__(self, name: str, is_prefix: bool):
+        self.name = name
+        self.is_prefix = is_prefix
+    
+    def __repr__(self):
+        prefix_str = "prefix" if self.is_prefix else "postfix"
+        return f"Increment({self.name}, {prefix_str})"
+
+
+class Decrement(Statement):
+    """Decrement statement (--x or x--)."""
+    def __init__(self, name: str, is_prefix: bool):
+        self.name = name
+        self.is_prefix = is_prefix
+    
+    def __repr__(self):
+        prefix_str = "prefix" if self.is_prefix else "postfix"
+        return f"Decrement({self.name}, {prefix_str})"
+
+
 class FunctionDef(ASTNode):
-    def __init__(self, name: str, params: List[str], body: Block):
+    def __init__(self, name: str, params: List[str], body: Block, is_interrupt: bool = False):
         self.name = name
         self.params = params
         self.body = body
+        self.is_interrupt = is_interrupt
     
     def __repr__(self):
-        return f"FunctionDef({self.name}, {self.params}, {self.body})"
+        interrupt_str = ", interrupt" if self.is_interrupt else ""
+        return f"FunctionDef({self.name}, {self.params}, {self.body}{interrupt_str})"
 
 
 class Program(ASTNode):
@@ -210,9 +244,23 @@ class Parser:
     
     def parse_function(self) -> FunctionDef:
         """Parse a function definition."""
+        is_interrupt = False
+        
+        # Check for interrupt keyword before function
+        if self.current_token() and self.current_token().type == TokenType.INTERRUPT:
+            self.advance()
+            is_interrupt = True
+        
         self.expect(TokenType.FUNCTION)
-        name_token = self.expect(TokenType.IDENTIFIER, "Expected function name")
-        name = name_token.value
+        
+        # If interrupt, function should be void with no parameters
+        if is_interrupt:
+            # Interrupt functions must be void (implicit) and have no parameters
+            name_token = self.expect(TokenType.IDENTIFIER, "Expected function name")
+            name = name_token.value
+        else:
+            name_token = self.expect(TokenType.IDENTIFIER, "Expected function name")
+            name = name_token.value
         
         self.expect(TokenType.LPAREN)
         params = []
@@ -223,9 +271,13 @@ class Parser:
                 params.append(self.expect(TokenType.IDENTIFIER, "Expected parameter name").value)
         self.expect(TokenType.RPAREN)
         
+        # Interrupt functions cannot have parameters
+        if is_interrupt and len(params) > 0:
+            raise SyntaxError(f"Interrupt function '{name}' cannot have parameters at line {name_token.line}")
+        
         body = self.parse_block()
         
-        return FunctionDef(name, params, body)
+        return FunctionDef(name, params, body, is_interrupt=is_interrupt)
     
     def parse_block(self) -> Block:
         """Parse a block of statements."""
@@ -245,6 +297,13 @@ class Parser:
         # Variable declaration
         if token.type == TokenType.UINT32:
             return self.parse_var_decl()
+        
+        # Prefix increment/decrement
+        if token.type == TokenType.INCREMENT:
+            return self.parse_prefix_increment()
+        
+        if token.type == TokenType.DECREMENT:
+            return self.parse_prefix_decrement()
         
         # Return statement
         if token.type == TokenType.RETURN:
@@ -266,7 +325,7 @@ class Parser:
         if token.type == TokenType.LBRACE:
             return self.parse_block()
         
-        # Assignment or function call (both start with identifier)
+        # Assignment, function call, or postfix increment/decrement (all start with identifier)
         if token.type == TokenType.IDENTIFIER:
             next_token = self.peek_token()
             if next_token and next_token.type == TokenType.LPAREN:
@@ -279,14 +338,56 @@ class Parser:
             elif next_token and next_token.type == TokenType.ASSIGN:
                 # Assignment
                 return self.parse_assignment()
+            elif next_token and next_token.type == TokenType.INCREMENT:
+                # Postfix increment: x++
+                name_token = self.expect(TokenType.IDENTIFIER)
+                self.expect(TokenType.INCREMENT)
+                self.expect(TokenType.SEMICOLON)
+                return Increment(name_token.value, is_prefix=False)
+            elif next_token and next_token.type == TokenType.DECREMENT:
+                # Postfix decrement: x--
+                name_token = self.expect(TokenType.IDENTIFIER)
+                self.expect(TokenType.DECREMENT)
+                self.expect(TokenType.SEMICOLON)
+                return Decrement(name_token.value, is_prefix=False)
         
         raise SyntaxError(f"Unexpected token in statement: {token} at line {token.line}")
     
     def parse_var_decl(self) -> VarDecl:
         """Parse a variable declaration."""
+        # Check for register, volatile, or interrupt keywords
+        is_register = False
+        is_volatile = False
+        register_num = None
+        
+        # Parse optional register/volatile keywords
+        while self.current_token():
+            if self.current_token().type == TokenType.REGISTER:
+                self.advance()
+                is_register = True
+            elif self.current_token().type == TokenType.VOLATILE:
+                self.advance()
+                is_volatile = True
+            elif self.current_token().type == TokenType.UINT32:
+                break
+            else:
+                break
+        
         self.expect(TokenType.UINT32)
         name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name")
         name = name_token.value
+        
+        # If register, parse register number from name (e.g., r0, r1, ..., r31)
+        if is_register:
+            if name.startswith('r') and len(name) > 1:
+                try:
+                    register_num = int(name[1:])
+                    if register_num < 0 or register_num > 31:
+                        raise SyntaxError(f"Register number must be 0-31, got {register_num} at line {name_token.line}")
+                except ValueError:
+                    raise SyntaxError(f"Invalid register name: {name} at line {name_token.line}")
+            else:
+                raise SyntaxError(f"Register variables must be named r0-r31, got {name} at line {name_token.line}")
         
         initializer = None
         if self.current_token() and self.current_token().type == TokenType.ASSIGN:
@@ -294,7 +395,7 @@ class Parser:
             initializer = self.parse_expression()
         
         self.expect(TokenType.SEMICOLON)
-        return VarDecl(name, initializer)
+        return VarDecl(name, initializer, is_register=is_register, is_volatile=is_volatile, register_num=register_num)
     
     def parse_assignment(self) -> Assignment:
         """Parse an assignment statement."""
@@ -304,6 +405,20 @@ class Parser:
         value = self.parse_expression()
         self.expect(TokenType.SEMICOLON)
         return Assignment(name, value)
+    
+    def parse_prefix_increment(self) -> Increment:
+        """Parse a prefix increment statement (++x)."""
+        self.expect(TokenType.INCREMENT)
+        name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name after ++")
+        self.expect(TokenType.SEMICOLON)
+        return Increment(name_token.value, is_prefix=True)
+    
+    def parse_prefix_decrement(self) -> Decrement:
+        """Parse a prefix decrement statement (--x)."""
+        self.expect(TokenType.DECREMENT)
+        name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name after --")
+        self.expect(TokenType.SEMICOLON)
+        return Decrement(name_token.value, is_prefix=True)
     
     def parse_return(self) -> Return:
         """Parse a return statement."""
@@ -377,10 +492,26 @@ class Parser:
         # Increment (optional)
         increment = None
         if self.current_token() and self.current_token().type != TokenType.RPAREN:
-            if self.current_token().type == TokenType.IDENTIFIER:
+            # Check for prefix increment/decrement
+            if self.current_token().type == TokenType.INCREMENT:
+                self.advance()
+                name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name after ++")
+                increment = Increment(name_token.value, is_prefix=True)
+            elif self.current_token().type == TokenType.DECREMENT:
+                self.advance()
+                name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name after --")
+                increment = Decrement(name_token.value, is_prefix=True)
+            elif self.current_token().type == TokenType.IDENTIFIER:
                 name = self.current_token().value
                 self.advance()
-                if self.current_token() and self.current_token().type == TokenType.ASSIGN:
+                # Check for postfix increment/decrement
+                if self.current_token() and self.current_token().type == TokenType.INCREMENT:
+                    self.advance()
+                    increment = Increment(name, is_prefix=False)
+                elif self.current_token() and self.current_token().type == TokenType.DECREMENT:
+                    self.advance()
+                    increment = Decrement(name, is_prefix=False)
+                elif self.current_token() and self.current_token().type == TokenType.ASSIGN:
                     self.advance()
                     value = self.parse_expression()
                     increment = Assignment(name, value)

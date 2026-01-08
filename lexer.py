@@ -17,6 +17,9 @@ class TokenType(Enum):
     IF = "IF"
     ELSE = "ELSE"
     RETURN = "RETURN"
+    REGISTER = "REGISTER"
+    VOLATILE = "VOLATILE"
+    INTERRUPT = "INTERRUPT"
     
     # Identifiers and literals
     IDENTIFIER = "IDENTIFIER"
@@ -38,6 +41,8 @@ class TokenType(Enum):
     AND = "AND"
     OR = "OR"
     NOT = "NOT"
+    INCREMENT = "INCREMENT"
+    DECREMENT = "DECREMENT"
     
     # Punctuation
     SEMICOLON = "SEMICOLON"
@@ -180,6 +185,9 @@ class Lexer:
                     'if': TokenType.IF,
                     'else': TokenType.ELSE,
                     'return': TokenType.RETURN,
+                    'register': TokenType.REGISTER,
+                    'volatile': TokenType.VOLATILE,
+                    'interrupt': TokenType.INTERRUPT,
                 }
                 token_type = keyword_map.get(identifier, TokenType.IDENTIFIER)
                 self.tokens.append(Token(token_type, identifier, line, column))
@@ -226,6 +234,18 @@ class Lexer:
                 self.advance()
                 self.advance()
                 self.tokens.append(Token(TokenType.OR, "||", line, column))
+                continue
+            
+            if char == '+' and self.peek_char() == '+':
+                self.advance()
+                self.advance()
+                self.tokens.append(Token(TokenType.INCREMENT, "++", line, column))
+                continue
+            
+            if char == '-' and self.peek_char() == '-':
+                self.advance()
+                self.advance()
+                self.tokens.append(Token(TokenType.DECREMENT, "--", line, column))
                 continue
             
             # Single-character operators and punctuation

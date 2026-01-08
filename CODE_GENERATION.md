@@ -138,9 +138,7 @@ function main() {
 
 **Generated Assembly** (`add.asm`):
 ```asm
-format binary
-
-include "ISA.inc"
+include "../../int_pack/ISA.inc"
 
 func_main:
 	; Function: main
@@ -151,6 +149,8 @@ func_main:
 	mov r0, r13
 	hlt
 ```
+
+Note: The `format binary` directive and ISA definitions are included from `int_pack/ISA.inc`.
 
 ### GPIO Blink
 
@@ -205,15 +205,15 @@ for_end_1:
 
 ### High Priority
 
-1. **Implement Conditional Jumps**: 
-   - Use r31 (instruction pointer) for jumps
-   - Implement proper if/else with conditional jumps
-   - Implement proper while/for loops
+1. ✅ **Implement Conditional Jumps**: 
+   - ✅ Use r31 (instruction pointer) for jumps
+   - ✅ Implement proper if/else with conditional jumps using `cmovz r31, condition, addr label`
+   - ✅ Implement proper while/for loops using `mov r31, addr label` and `cmovz r31, condition, addr label`
 
-2. **Implement Function Call/Return**:
-   - Save return address (link register or stack)
-   - Jump to function using r31
-   - Return using saved address
+2. ✅ **Implement Function Call/Return**:
+   - ✅ Save return address in r30 (link register)
+   - ✅ Jump to function using `mov r31, addr func_label`
+   - ✅ Return using `mov r31, r30`
 
 3. **Handle Division/Modulo**:
    - Either implement via software (loop with subtraction)
@@ -247,23 +247,55 @@ for_end_1:
 
 ## Usage
 
-Compile a source file:
+### Compilation
+
+Compile a source file to assembly and binary:
 ```bash
-python compile.py source.sc [output.asm]
+python compile.py source.sc [output.asm] [--run]
 ```
 
-The generated `.asm` file can then be compiled with FASM:
+The compiler automatically:
+1. Generates FASM assembly (`.asm` file)
+2. Compiles with `int_pack/FASM.EXE` to produce:
+   - `.bin` file (binary executable)
+   - `.mif` file (Memory Initialization File for Quartus)
+
+Options:
+- `output.asm` - Optional output assembly file path (default: `<source>.asm`)
+- `--run` - After compilation, run the binary using `int_pack/interpreter_x64.exe`
+
+Examples:
 ```bash
-fasm.exe output.asm
+# Compile to assembly and binary
+python compile.py examples/basic/sum_range.sc
+
+# Compile and run
+python compile.py examples/basic/sum_range.sc --run
 ```
 
-This will generate `.bin` and `.mif` files for use with the hardware.
+### Manual Compilation
+
+If you want to compile manually:
+```bash
+int_pack/FASM.EXE examples/basic/sum_range.asm
+```
+
+This will generate `.bin` and `.mif` files in the same directory as the `.asm` file.
+
+### Running Binaries
+
+Run a compiled binary:
+```bash
+int_pack/interpreter_x64.exe examples/basic/sum_range.bin
+```
+
+The interpreter executes the binary and prints register states at the end.
 
 ## Future Improvements
 
-1. **Proper Jump Implementation**: 
-   - Use labels with proper address resolution
-   - Implement conditional jumps using cmovz/cmovnz with r31
+1. ✅ **Proper Jump Implementation**: 
+   - ✅ Use labels with proper address resolution (`addr label`)
+   - ✅ Implement conditional jumps using `cmovz r31, condition, addr label`
 
 2. **Stack Support**:
    - For function calls with more than 5 parameters

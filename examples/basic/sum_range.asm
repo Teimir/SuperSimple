@@ -1,6 +1,4 @@
-format binary
-
-include "ISA.inc"
+include "../../int_pack/ISA.inc"
 
 
 func_main:
@@ -9,8 +7,8 @@ func_main:
 	mov r26, r0
 	mov r1, 10
 	mov r27, r1
-	mov r30, ret_addr_0
-	mov r31, func_sum_range
+	mov r30, addr ret_addr_0
+	mov r31, addr func_sum_range
 ret_addr_0:
 	mov r2, r0
 	mov r11, r2
@@ -30,13 +28,13 @@ for_start_1:
 	cmovz r1, r2, r3
 	cmovnz r1, r2, r4
 	mov r5, 0
-	cmovz r31, r1, for_end_2
+	cmovz r31, r1, addr for_end_2
 	add r6, r13, r14
 	mov r13, r6
 	mov r7, 1
 	add r8, r14, r7
 	mov r14, r8
-	mov r31, for_start_1
+	mov r31, addr for_start_1
 for_end_2:
 	mov r0, r13
 	mov r31, r30

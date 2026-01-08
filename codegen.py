@@ -3,6 +3,7 @@ Code Generator for Simple C-Style Language
 Generates FASM assembly code from AST.
 """
 
+import os
 from typing import Dict, List, Optional, Set, Tuple
 from parser import (
     Program, FunctionDef, Statement, Expression,
@@ -78,6 +79,8 @@ class CodeGenerator:
     
     def emit_label(self, label: str):
         """Emit a label."""
+        # In FASM with ISA.inc, labels need 'addr' prefix for addresses
+        # But for code labels (for jumps), we can use labels directly
         self.code.append(f"{label}:")
     
     def emit_comment(self, comment: str):
@@ -86,21 +89,69 @@ class CodeGenerator:
     
     def get_register_name(self, reg_num: int) -> str:
         """Convert register number to FASM format."""
-        return f"r{reg_num}"
+        # FASM ISA.inc uses format r:0, r:1, etc. (with colon)
+        return f"r:{reg_num}"
     
-    def generate(self) -> str:
+    def generate(self, output_file: str = None) -> str:
         """Generate complete assembly program."""
         self.code = []
         
-        # FASM header
-        self.code.append("format binary")
+        # Add commented format binary (as in calc.asm)
+        # format binary is already in ISA.inc, so we comment it out
+        self.code.append(";format binary")
         self.code.append("")
-        self.code.append('include "ISA.inc"')
+        
+        # Include ISA.inc from int_pack directory (it contains "format binary")
+        # Calculate path relative to output file location
+        if output_file:
+            # Get absolute paths
+            output_abs = os.path.abspath(output_file)
+            output_dir = os.path.dirname(output_abs)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            int_pack_isa = os.path.join(script_dir, "int_pack", "ISA.inc")
+            
+            # Try to find relative path from output directory to int_pack
+            try:
+                rel_path = os.path.relpath(int_pack_isa, output_dir)
+                # Use forward slashes for FASM (works on Windows too)
+                rel_path = rel_path.replace('\\', '/')
+                self.code.append(f'include "{rel_path}"')
+            except ValueError:
+                # If relative path fails (different drives on Windows), use absolute path
+                # Use forward slashes
+                int_pack_isa_normalized = int_pack_isa.replace('\\', '/')
+                self.code.append(f'include "{int_pack_isa_normalized}"')
+        else:
+            # Default: assume int_pack is relative to project root
+            self.code.append('include "../int_pack/ISA.inc"')
+        
+        # Include macros.inc for entry macro (if main function exists)
+        if output_file:
+            output_abs = os.path.abspath(output_file)
+            output_dir = os.path.dirname(output_abs)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            int_pack_macros = os.path.join(script_dir, "int_pack", "macros.inc")
+            
+            try:
+                rel_path = os.path.relpath(int_pack_macros, output_dir)
+                rel_path = rel_path.replace('\\', '/')
+                # Only include if main function exists
+                if any(f.name == 'main' for f in self.program.functions):
+                    self.code.append(f'include "{rel_path}"')
+            except ValueError:
+                int_pack_macros_normalized = int_pack_macros.replace('\\', '/')
+                if any(f.name == 'main' for f in self.program.functions):
+                    self.code.append(f'include "{int_pack_macros_normalized}"')
+        
         self.code.append("")
         
         # Generate function labels
         for func in self.program.functions:
-            self.function_labels[func.name] = f"func_{func.name}"
+            # Main function uses just "main:" label, others use "func_name:"
+            if func.name == 'main':
+                self.function_labels[func.name] = "main"
+            else:
+                self.function_labels[func.name] = f"func_{func.name}"
         
         # Generate main function first (entry point)
         main_func = None
@@ -110,6 +161,11 @@ class CodeGenerator:
                 main_func = func
             else:
                 other_funcs.append(func)
+        
+        # Generate entry point for main (using entry macro from macros.inc)
+        if main_func:
+            self.code.append("entry main")
+            self.code.append("")
         
         # Generate main first (entry point)
         if main_func:
@@ -151,18 +207,18 @@ class CodeGenerator:
         self.generate_statement(func.body)
         
         # Function return (if no explicit return, return 0)
-        # Return value should be in r0 by convention
+        # Return value should be in r:0 by convention
         if not self._has_explicit_return:
             self.emit_comment("Implicit return 0")
-            self.emit("mov r0, 0")
+            self.emit("mov r:0, 0")
             
             # Return from function
             if func.name == 'main':
                 # Main function ends the program
                 self.emit("hlt")
             else:
-                # Return to caller by jumping to return address in r30
-                self.emit(f"mov r31, r30")
+                # Return to caller by jumping to return address in r:30
+                self.emit(f"mov r:31, r:30")
         
         # Reset flag
         self._has_explicit_return = False
@@ -188,7 +244,26 @@ class CodeGenerator:
             self.generate_block(stmt)
         elif isinstance(stmt, FunctionCallStmt):
             # FunctionCallStmt wraps a FunctionCall - just ignore return value
-            self.generate_function_call(stmt.call)
+            # Check if it's a hardware function - if so, generate without result register
+            if stmt.call.name not in self.function_labels:
+                # Hardware function - generate code without allocating result register
+                args = [self.generate_expression(arg) for arg in stmt.call.args]
+                if stmt.call.name == 'uart_write':
+                    if len(args) != 1:
+                        raise RuntimeError(f"uart_write expects 1 argument, got {len(args)}")
+                    data_reg = args[0]
+                    self.emit(f"outu {self.get_register_name(data_reg)}")
+                    self.reg_allocator.free_temp(data_reg)
+                else:
+                    # For other hardware functions, still need result register (but ignore it)
+                    result_reg = self.generate_function_call(stmt.call)
+                    if result_reg != 0:
+                        self.reg_allocator.free_temp(result_reg)
+            else:
+                # Regular function call - generate normally but ignore result
+                result_reg = self.generate_function_call(stmt.call)
+                if result_reg != 0:
+                    self.reg_allocator.free_temp(result_reg)
         elif isinstance(stmt, Increment):
             self.generate_increment(stmt)
         elif isinstance(stmt, Decrement):
@@ -453,28 +528,28 @@ class CodeGenerator:
             arg_reg = self.generate_expression(arg)
             param_reg = 26 + i
             if arg_reg != param_reg:
-                self.emit(f"mov r{param_reg}, {self.get_register_name(arg_reg)}")
+                self.emit(f"mov r:{param_reg}, {self.get_register_name(arg_reg)}")
             self.reg_allocator.free_temp(arg_reg)
         
         # Generate return address label
         return_addr_label = self.generate_label("ret_addr")
         
-        # Save return address in r30 (link register)
-        # In FASM, labels are addresses, so we use the label directly
-        self.emit(f"mov r30, {return_addr_label}")
+        # Save return address in r:30 (link register)
+        # In FASM with ISA.inc, use 'addr' prefix for label addresses
+        self.emit(f"mov r:30, addr {return_addr_label}")
         
-        # Jump to function by setting r31 (instruction pointer) to function label
+        # Jump to function by setting r:31 (instruction pointer) to function label
         func_label = self.function_labels[call.name]
-        self.emit(f"mov r31, {func_label}")
+        self.emit(f"mov r:31, addr {func_label}")
         
         # Return address label - execution continues here after function returns
         self.emit_label(return_addr_label)
         
-        # After function call, return value should be in r0
+        # After function call, return value should be in r:0
         # Get return value
         result_reg = self.reg_allocator.get_temp_register()
         if result_reg != 0:
-            self.emit(f"mov {self.get_register_name(result_reg)}, r0")
+            self.emit(f"mov {self.get_register_name(result_reg)}, r:0")
         
         return result_reg
     
@@ -552,20 +627,20 @@ class CodeGenerator:
         
         if stmt.value:
             value_reg = self.generate_expression(stmt.value)
-            # Return value in r0 by convention
+            # Return value in r:0 by convention
             if value_reg != 0:
-                self.emit(f"mov r0, {self.get_register_name(value_reg)}")
+                self.emit(f"mov r:0, {self.get_register_name(value_reg)}")
             self.reg_allocator.free_temp(value_reg)
         else:
-            self.emit("mov r0, 0")
+            self.emit("mov r:0, 0")
         
         # Return from function by restoring instruction pointer from link register
         if self.current_function == 'main':
             # Main function ends the program
             self.emit("hlt")
         else:
-            # Return to caller by jumping to return address in r30
-            self.emit(f"mov r31, r30")
+            # Return to caller by jumping to return address in r:30
+            self.emit(f"mov r:31, r:30")
     
     def generate_if(self, stmt: IfStmt):
         """Generate code for if statement."""
@@ -578,11 +653,11 @@ class CodeGenerator:
         self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
         
         # Conditional jump: if condition == 0 (false), jump to else/end
-        # cmovz r31, condition_reg, label means: if condition_reg == 0, set r31 to label (jump)
+        # cmovz r:31, condition_reg, addr label means: if condition_reg == 0, set r:31 to label address (jump)
         if stmt.else_branch:
-            self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {else_label}")
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {else_label}")
         else:
-            self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {end_label}")
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {end_label}")
         
         self.reg_allocator.free_temp(zero_reg)
         self.reg_allocator.free_temp(condition_reg)
@@ -592,7 +667,7 @@ class CodeGenerator:
         
         # Unconditional jump to end (skip else branch)
         if stmt.else_branch:
-            self.emit(f"mov r31, {end_label}")
+            self.emit(f"mov r:31, addr {end_label}")
         
         # Else branch
         if stmt.else_branch:
@@ -614,8 +689,8 @@ class CodeGenerator:
         self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
         
         # Conditional jump: if condition == 0 (false), exit loop
-        # cmovz r31, condition_reg, end_label means: if condition_reg == 0, set r31 to end_label (jump)
-        self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {end_label}")
+        # cmovz r:31, condition_reg, addr end_label means: if condition_reg == 0, set r:31 to end_label address (jump)
+        self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {end_label}")
         
         self.reg_allocator.free_temp(zero_reg)
         self.reg_allocator.free_temp(condition_reg)
@@ -624,7 +699,7 @@ class CodeGenerator:
         self.generate_statement(stmt.body)
         
         # Unconditional jump back to start
-        self.emit(f"mov r31, {start_label}")
+        self.emit(f"mov r:31, addr {start_label}")
         
         self.emit_label(end_label)
     
@@ -646,8 +721,8 @@ class CodeGenerator:
             self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
             
             # Conditional jump: if condition == 0 (false), exit loop
-            # cmovz r31, condition_reg, end_label means: if condition_reg == 0, set r31 to end_label (jump)
-            self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {end_label}")
+            # cmovz r:31, condition_reg, addr end_label means: if condition_reg == 0, set r:31 to end_label address (jump)
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {end_label}")
             
             self.reg_allocator.free_temp(zero_reg)
             self.reg_allocator.free_temp(condition_reg)
@@ -660,7 +735,7 @@ class CodeGenerator:
             self.generate_statement(stmt.increment)
         
         # Unconditional jump back to start
-        self.emit(f"mov r31, {start_label}")
+        self.emit(f"mov r:31, addr {start_label}")
         
         self.emit_label(end_label)
     

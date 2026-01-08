@@ -82,18 +82,32 @@ See `examples/README.md` for detailed descriptions.
 
 ## Compilation
 
-Compile a source file to FASM assembly:
+Compile a source file to FASM assembly, then to binary:
 
 ```bash
-python compile.py <source_file> [output_file]
+python compile.py <source_file> [output_file] [--run]
 ```
 
-Example:
+Options:
+- `output_file` - Optional output `.asm` file path (default: `<source_file>.asm`)
+- `--run` - After compilation, run the binary using `interpreter_x64.exe` from `int_pack`
+
+Examples:
 ```bash
+# Compile to assembly and binary
 python compile.py examples/basic/sum_range.sc
+
+# Compile and run
+python compile.py examples/basic/sum_range.sc --run
 ```
 
-This generates a `.asm` file that can be compiled with FASM to produce binary and MIF files for the hardware.
+This generates:
+- `.asm` file - FASM assembly source
+- `.bin` file - Binary executable (compiled with `int_pack/FASM.EXE`)
+- `.mif` file - Memory Initialization File for Quartus
+
+The compiler uses `int_pack/FASM.EXE` to compile assembly and `int_pack/interpreter_x64.exe` to run binaries.
+The `int_pack/ISA.inc` file is automatically included in generated assembly files.
 
 See [CODE_GENERATION.md](CODE_GENERATION.md) for details on code generation.
 

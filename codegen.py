@@ -1,0 +1,698 @@
+"""
+Code Generator for Simple C-Style Language
+Generates FASM assembly code from AST.
+"""
+
+from typing import Dict, List, Optional, Set, Tuple
+from parser import (
+    Program, FunctionDef, Statement, Expression,
+    Literal, Identifier, BinaryOp, UnaryOp, FunctionCall,
+    VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
+    Block, FunctionCallStmt, Increment, Decrement
+)
+
+
+class RegisterAllocator:
+    """Simple register allocator using fixed register allocation."""
+    
+    def __init__(self):
+        # r0-r30 are available for variables (r31 is instruction pointer)
+        # We'll use r0-r10 for temporaries, r11-r25 for local variables, r26-r30 for parameters
+        self.available_registers = list(range(0, 31))  # r0 to r30
+        self.allocated: Dict[str, int] = {}  # variable name -> register number
+        self.temp_counter = 0
+        self.next_temp = 0  # Start with r0 for temporaries
+        
+    def allocate(self, name: str) -> int:
+        """Allocate a register for a variable."""
+        if name in self.allocated:
+            return self.allocated[name]
+        
+        # Use registers starting from r11 for variables
+        reg_num = 11 + len(self.allocated)
+        if reg_num > 30:
+            raise RuntimeError(f"Too many variables: register allocation failed for {name}")
+        
+        self.allocated[name] = reg_num
+        return reg_num
+    
+    def get_register(self, name: str) -> Optional[int]:
+        """Get register number for a variable, or None if not allocated."""
+        if name in self.allocated:
+            return self.allocated[name]
+        return None
+    
+    def get_temp_register(self) -> int:
+        """Get a temporary register."""
+        # Use r0-r10 for temporaries
+        reg = self.next_temp
+        self.next_temp = (self.next_temp + 1) % 11  # Cycle through r0-r10
+        return reg
+    
+    def free_temp(self, reg: int):
+        """Free a temporary register (does nothing in simple allocator)."""
+        pass
+
+
+class CodeGenerator:
+    """Generates FASM assembly code from AST."""
+    
+    def __init__(self, program: Program):
+        self.program = program
+        self.reg_allocator = RegisterAllocator()
+        self.label_counter = 0
+        self.code: List[str] = []
+        self.function_labels: Dict[str, str] = {}
+        self.current_function: Optional[str] = None
+        self._has_explicit_return = False  # Track if current function has explicit return
+        
+    def generate_label(self, prefix: str = "L") -> str:
+        """Generate a unique label."""
+        label = f"{prefix}_{self.label_counter}"
+        self.label_counter += 1
+        return label
+    
+    def emit(self, instruction: str):
+        """Emit an assembly instruction."""
+        self.code.append(f"\t{instruction}")
+    
+    def emit_label(self, label: str):
+        """Emit a label."""
+        self.code.append(f"{label}:")
+    
+    def emit_comment(self, comment: str):
+        """Emit a comment."""
+        self.code.append(f"\t; {comment}")
+    
+    def get_register_name(self, reg_num: int) -> str:
+        """Convert register number to FASM format."""
+        return f"r{reg_num}"
+    
+    def generate(self) -> str:
+        """Generate complete assembly program."""
+        self.code = []
+        
+        # FASM header
+        self.code.append("format binary")
+        self.code.append("")
+        self.code.append('include "ISA.inc"')
+        self.code.append("")
+        
+        # Generate function labels
+        for func in self.program.functions:
+            self.function_labels[func.name] = f"func_{func.name}"
+        
+        # Generate main function first (entry point)
+        main_func = None
+        other_funcs = []
+        for func in self.program.functions:
+            if func.name == 'main':
+                main_func = func
+            else:
+                other_funcs.append(func)
+        
+        # Generate main first (entry point)
+        if main_func:
+            self.generate_function(main_func)
+        
+        # Generate other functions
+        for func in other_funcs:
+            self.generate_function(func)
+        
+        return "\n".join(self.code)
+    
+    def generate_function(self, func: FunctionDef):
+        """Generate assembly code for a function."""
+        old_func = self.current_function
+        self.current_function = func.name
+        old_allocator = self.reg_allocator
+        self.reg_allocator = RegisterAllocator()
+        
+        # Function label
+        self.code.append("")
+        self.emit_label(self.function_labels[func.name])
+        self.emit_comment(f"Function: {func.name}")
+        
+        # Allocate registers for parameters
+        param_regs = []
+        for i, param in enumerate(func.params):
+            # Use r26-r30 for parameters
+            param_reg = 26 + i
+            if param_reg > 30:
+                raise RuntimeError(f"Too many parameters in function {func.name}")
+            self.reg_allocator.allocated[param] = param_reg
+            param_regs.append(param_reg)
+        
+        # Track if function has explicit return
+        # We'll set this flag when we encounter a return statement
+        self._has_explicit_return = False
+        
+        # Generate function body
+        self.generate_statement(func.body)
+        
+        # Function return (if no explicit return, return 0)
+        # Return value should be in r0 by convention
+        if not self._has_explicit_return:
+            self.emit_comment("Implicit return 0")
+            self.emit("mov r0, 0")
+            
+            # Return from function
+            if func.name == 'main':
+                # Main function ends the program
+                self.emit("hlt")
+            else:
+                # Return to caller by jumping to return address in r30
+                self.emit(f"mov r31, r30")
+        
+        # Reset flag
+        self._has_explicit_return = False
+        
+        self.current_function = old_func
+        self.reg_allocator = old_allocator
+    
+    def generate_statement(self, stmt: Statement):
+        """Generate assembly code for a statement."""
+        if isinstance(stmt, VarDecl):
+            self.generate_var_decl(stmt)
+        elif isinstance(stmt, Assignment):
+            self.generate_assignment(stmt)
+        elif isinstance(stmt, Return):
+            self.generate_return(stmt)
+        elif isinstance(stmt, IfStmt):
+            self.generate_if(stmt)
+        elif isinstance(stmt, WhileStmt):
+            self.generate_while(stmt)
+        elif isinstance(stmt, ForStmt):
+            self.generate_for(stmt)
+        elif isinstance(stmt, Block):
+            self.generate_block(stmt)
+        elif isinstance(stmt, FunctionCallStmt):
+            # FunctionCallStmt wraps a FunctionCall - just ignore return value
+            self.generate_function_call(stmt.call)
+        elif isinstance(stmt, Increment):
+            self.generate_increment(stmt)
+        elif isinstance(stmt, Decrement):
+            self.generate_decrement(stmt)
+        else:
+            raise RuntimeError(f"Unknown statement type: {type(stmt)}")
+    
+    def generate_var_decl(self, decl: VarDecl):
+        """Generate code for variable declaration."""
+        if decl.is_register:
+            # Register variable - just allocate it
+            reg_num = int(decl.name[1:])  # Extract number from "r0", "r1", etc.
+            if reg_num < 0 or reg_num > 30:
+                raise RuntimeError(f"Invalid register name: {decl.name}")
+            self.reg_allocator.allocated[decl.name] = reg_num
+        
+        # Allocate register for variable
+        reg_num = self.reg_allocator.allocate(decl.name)
+        
+        # Initialize if needed
+        if decl.initializer:
+            value_reg = self.generate_expression(decl.initializer)
+            if value_reg != reg_num:
+                self.emit(f"mov {self.get_register_name(reg_num)}, {self.get_register_name(value_reg)}")
+                self.reg_allocator.free_temp(value_reg)
+        else:
+            # Initialize to 0
+            self.emit(f"mov {self.get_register_name(reg_num)}, 0")
+    
+    def generate_assignment(self, assign: Assignment):
+        """Generate code for assignment."""
+        # Evaluate expression
+        value_reg = self.generate_expression(assign.value)
+        
+        # Get target register
+        target_reg = self.reg_allocator.get_register(assign.name)
+        if target_reg is None:
+            if assign.name.startswith('r') and assign.name[1:].isdigit():
+                # Direct register access
+                target_reg = int(assign.name[1:])
+            else:
+                # Allocate new register
+                target_reg = self.reg_allocator.allocate(assign.name)
+        
+        # Move value to target
+        if value_reg != target_reg:
+            self.emit(f"mov {self.get_register_name(target_reg)}, {self.get_register_name(value_reg)}")
+        
+        self.reg_allocator.free_temp(value_reg)
+    
+    def generate_expression(self, expr: Expression) -> int:
+        """Generate code for expression and return register containing result."""
+        if isinstance(expr, Literal):
+            return self.generate_literal(expr)
+        elif isinstance(expr, Identifier):
+            return self.generate_identifier(expr)
+        elif isinstance(expr, BinaryOp):
+            return self.generate_binary_op(expr)
+        elif isinstance(expr, UnaryOp):
+            return self.generate_unary_op(expr)
+        elif isinstance(expr, FunctionCall):
+            return self.generate_function_call(expr)
+        else:
+            raise RuntimeError(f"Unknown expression type: {type(expr)}")
+    
+    def generate_literal(self, lit: Literal) -> int:
+        """Generate code for literal and return register with value."""
+        temp_reg = self.reg_allocator.get_temp_register()
+        # For now, use mov with immediate (if ISA supports it)
+        # Otherwise, we'd need to load from memory
+        # Assuming ISA supports: mov r0, 42 (immediate in op2)
+        value = lit.value & 0xFFFFFFFF
+        self.emit(f"mov {self.get_register_name(temp_reg)}, {value}")
+        return temp_reg
+    
+    def generate_identifier(self, ident: Identifier) -> int:
+        """Generate code for identifier access."""
+        reg = self.reg_allocator.get_register(ident.name)
+        if reg is None:
+            if ident.name.startswith('r') and ident.name[1:].isdigit():
+                reg = int(ident.name[1:])
+            else:
+                raise RuntimeError(f"Undefined variable: {ident.name}")
+        
+        # If it's already in a register, return it
+        # Otherwise, we'd need to load from memory (not implemented)
+        return reg
+    
+    def generate_binary_op(self, op: BinaryOp) -> int:
+        """Generate code for binary operation."""
+        left_reg = self.generate_expression(op.left)
+        right_reg = self.generate_expression(op.right)
+        result_reg = self.reg_allocator.get_temp_register()
+        
+        op_map = {
+            '+': 'add',
+            '-': 'sub',
+            '&': 'and',
+            '|': 'or',
+            '^': 'xor',
+            '<<': 'shl',
+            '>>': 'shr',
+        }
+        
+        if op.op in op_map:
+            # Three-operand instruction: result = left op right
+            self.emit(f"{op_map[op.op]} {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+        elif op.op == '*':
+            # Multiplication: use repeated addition (simplified)
+            # For proper implementation, would need multiplication instruction
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+            loop_label = self.generate_label("mul_loop")
+            self.emit_label(loop_label)
+            # Simplified: just add (proper impl would need loop)
+            self.emit(f"add {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+            self.reg_allocator.free_temp(temp)
+        elif op.op == '/':
+            # Division: would need division instruction (not in ISA)
+            raise RuntimeError("Division not yet supported in code generation")
+        elif op.op == '%':
+            # Modulo: would need modulo instruction
+            raise RuntimeError("Modulo not yet supported in code generation")
+        elif op.op == '==':
+            # Equality comparison: use cmpe
+            self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+            # Convert -1 (equal) to 1, 0 (not equal) to 0
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(temp)}, -1")
+            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.reg_allocator.free_temp(temp)
+        elif op.op == '!=':
+            # Not equal: use cmpe and invert
+            self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+            # Convert 0 (equal) to 0, -1 (not equal) to 1
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(temp)}, -1")
+            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.reg_allocator.free_temp(temp)
+        elif op.op == '<':
+            # Less than: use cmpb
+            self.emit(f"cmpb {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+            # Convert -1 (less) to 1, 0 (not less) to 0
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(temp)}, -1")
+            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.reg_allocator.free_temp(temp)
+        elif op.op == '>':
+            # Greater than: use cmpa
+            self.emit(f"cmpa {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(temp)}, -1")
+            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.reg_allocator.free_temp(temp)
+        elif op.op == '<=':
+            # Less than or equal: (a <= b) means !(a > b)
+            # Use cmpa to check if a > b, then invert
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpa {self.get_register_name(temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+            # temp is -1 if a > b, 0 if a <= b
+            # We want result_reg = 1 if a <= b, 0 if a > b
+            # So: result_reg = 1 if temp == 0, else 0
+            one_reg = self.reg_allocator.get_temp_register()
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            # If temp == 0 (a <= b), set result_reg = 1, else 0
+            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(one_reg)}")
+            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(zero_reg)}")
+            self.reg_allocator.free_temp(temp)
+            self.reg_allocator.free_temp(one_reg)
+            self.reg_allocator.free_temp(zero_reg)
+        elif op.op == '>=':
+            # Greater than or equal: (a >= b) == !(a < b)
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpb {self.get_register_name(temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+            self.emit(f"mov {self.get_register_name(result_reg)}, 1")
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(zero_reg)}")
+            self.reg_allocator.free_temp(temp)
+            self.reg_allocator.free_temp(zero_reg)
+        elif op.op == '&&':
+            # Logical AND: both non-zero
+            # Convert to: (left != 0) && (right != 0)
+            temp = self.reg_allocator.get_temp_register()
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            self.emit(f"cmpe {self.get_register_name(temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(zero_reg)}")
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(result_reg)}")
+            self.emit(f"cmpe {self.get_register_name(temp)}, {self.get_register_name(right_reg)}, {self.get_register_name(zero_reg)}")
+            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(result_reg)}")
+            self.reg_allocator.free_temp(temp)
+            self.reg_allocator.free_temp(zero_reg)
+        elif op.op == '||':
+            # Logical OR: either non-zero
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(zero_reg)}")
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(temp)}, 1")
+            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.emit(f"cmpe {self.get_register_name(temp)}, {self.get_register_name(right_reg)}, {self.get_register_name(zero_reg)}")
+            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(result_reg)}")
+            self.reg_allocator.free_temp(temp)
+            self.reg_allocator.free_temp(zero_reg)
+        else:
+            raise RuntimeError(f"Unknown binary operator: {op.op}")
+        
+        self.reg_allocator.free_temp(left_reg)
+        self.reg_allocator.free_temp(right_reg)
+        return result_reg
+    
+    def generate_unary_op(self, op: UnaryOp) -> int:
+        """Generate code for unary operation."""
+        operand_reg = self.generate_expression(op.operand)
+        result_reg = self.reg_allocator.get_temp_register()
+        
+        if op.op == '!':
+            # Logical NOT: convert 0 to 1, non-zero to 0
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(operand_reg)}, {self.get_register_name(zero_reg)}")
+            # result_reg is -1 if equal (operand was 0), 0 if not equal
+            # Convert -1 to 1, 0 to 0
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(temp)}, -1")
+            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+            self.reg_allocator.free_temp(temp)
+            self.reg_allocator.free_temp(zero_reg)
+        elif op.op == '~':
+            # Bitwise NOT
+            self.emit(f"not {self.get_register_name(result_reg)}, {self.get_register_name(operand_reg)}")
+        elif op.op == '-':
+            # Unary minus: 0 - operand
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            self.emit(f"sub {self.get_register_name(result_reg)}, {self.get_register_name(zero_reg)}, {self.get_register_name(operand_reg)}")
+            self.reg_allocator.free_temp(zero_reg)
+        else:
+            raise RuntimeError(f"Unknown unary operator: {op.op}")
+        
+        self.reg_allocator.free_temp(operand_reg)
+        return result_reg
+    
+    def generate_function_call(self, call: FunctionCall) -> int:
+        """Generate code for function call."""
+        # Check if it's a built-in hardware function
+        if call.name not in self.function_labels:
+            return self.generate_hardware_function(call)
+        
+        # Pass parameters (max 5 params in r26-r30)
+        for i, arg in enumerate(call.args):
+            if i >= 5:
+                raise RuntimeError(f"Too many arguments in function call: {call.name}")
+            arg_reg = self.generate_expression(arg)
+            param_reg = 26 + i
+            if arg_reg != param_reg:
+                self.emit(f"mov r{param_reg}, {self.get_register_name(arg_reg)}")
+            self.reg_allocator.free_temp(arg_reg)
+        
+        # Generate return address label
+        return_addr_label = self.generate_label("ret_addr")
+        
+        # Save return address in r30 (link register)
+        # In FASM, labels are addresses, so we use the label directly
+        self.emit(f"mov r30, {return_addr_label}")
+        
+        # Jump to function by setting r31 (instruction pointer) to function label
+        func_label = self.function_labels[call.name]
+        self.emit(f"mov r31, {func_label}")
+        
+        # Return address label - execution continues here after function returns
+        self.emit_label(return_addr_label)
+        
+        # After function call, return value should be in r0
+        # Get return value
+        result_reg = self.reg_allocator.get_temp_register()
+        if result_reg != 0:
+            self.emit(f"mov {self.get_register_name(result_reg)}, r0")
+        
+        return result_reg
+    
+    def generate_hardware_function(self, call: FunctionCall) -> int:
+        """Generate code for hardware function calls."""
+        result_reg = self.reg_allocator.get_temp_register()
+        
+        if call.name == 'gpio_set':
+            if len(call.args) != 3:
+                raise RuntimeError(f"gpio_set expects 3 arguments, got {len(call.args)}")
+            pin_reg = self.generate_expression(call.args[0])
+            dir_reg = self.generate_expression(call.args[1])
+            mode_reg = self.generate_expression(call.args[2])
+            # Pack into one value: (pin << 16) | (dir << 8) | mode
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"shl {self.get_register_name(temp)}, {self.get_register_name(pin_reg)}, 16")
+            temp2 = self.reg_allocator.get_temp_register()
+            self.emit(f"shl {self.get_register_name(temp2)}, {self.get_register_name(dir_reg)}, 8")
+            self.emit(f"or {self.get_register_name(temp)}, {self.get_register_name(temp)}, {self.get_register_name(temp2)}")
+            self.emit(f"or {self.get_register_name(temp)}, {self.get_register_name(temp)}, {self.get_register_name(mode_reg)}")
+            self.emit(f"setg {self.get_register_name(temp)}")
+            self.reg_allocator.free_temp(pin_reg)
+            self.reg_allocator.free_temp(dir_reg)
+            self.reg_allocator.free_temp(mode_reg)
+            self.reg_allocator.free_temp(temp)
+            self.reg_allocator.free_temp(temp2)
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+        elif call.name == 'gpio_read':
+            if len(call.args) != 1:
+                raise RuntimeError(f"gpio_read expects 1 argument, got {len(call.args)}")
+            pin_reg = self.generate_expression(call.args[0])
+            self.emit(f"getg {self.get_register_name(result_reg)}")
+            self.reg_allocator.free_temp(pin_reg)
+        elif call.name == 'gpio_write':
+            if len(call.args) != 2:
+                raise RuntimeError(f"gpio_write expects 2 arguments, got {len(call.args)}")
+            pin_reg = self.generate_expression(call.args[0])
+            value_reg = self.generate_expression(call.args[1])
+            # Pack: (pin << 8) | value
+            temp = self.reg_allocator.get_temp_register()
+            self.emit(f"shl {self.get_register_name(temp)}, {self.get_register_name(pin_reg)}, 8")
+            self.emit(f"or {self.get_register_name(temp)}, {self.get_register_name(temp)}, {self.get_register_name(value_reg)}")
+            self.emit(f"outg {self.get_register_name(temp)}")
+            self.reg_allocator.free_temp(pin_reg)
+            self.reg_allocator.free_temp(value_reg)
+            self.reg_allocator.free_temp(temp)
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+        elif call.name == 'uart_set_baud':
+            if len(call.args) != 1:
+                raise RuntimeError(f"uart_set_baud expects 1 argument, got {len(call.args)}")
+            baud_reg = self.generate_expression(call.args[0])
+            self.emit(f"setu {self.get_register_name(baud_reg)}")
+            self.reg_allocator.free_temp(baud_reg)
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+        elif call.name == 'uart_read':
+            if len(call.args) != 0:
+                raise RuntimeError(f"uart_read expects 0 arguments, got {len(call.args)}")
+            self.emit(f"inu {self.get_register_name(result_reg)}")
+        elif call.name == 'uart_write':
+            if len(call.args) != 1:
+                raise RuntimeError(f"uart_write expects 1 argument, got {len(call.args)}")
+            data_reg = self.generate_expression(call.args[0])
+            self.emit(f"outu {self.get_register_name(data_reg)}")
+            self.reg_allocator.free_temp(data_reg)
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+        else:
+            raise RuntimeError(f"Unknown hardware function: {call.name}")
+        
+        return result_reg
+    
+    def generate_return(self, stmt: Return):
+        """Generate code for return statement."""
+        # Mark that we have an explicit return
+        self._has_explicit_return = True
+        
+        if stmt.value:
+            value_reg = self.generate_expression(stmt.value)
+            # Return value in r0 by convention
+            if value_reg != 0:
+                self.emit(f"mov r0, {self.get_register_name(value_reg)}")
+            self.reg_allocator.free_temp(value_reg)
+        else:
+            self.emit("mov r0, 0")
+        
+        # Return from function by restoring instruction pointer from link register
+        if self.current_function == 'main':
+            # Main function ends the program
+            self.emit("hlt")
+        else:
+            # Return to caller by jumping to return address in r30
+            self.emit(f"mov r31, r30")
+    
+    def generate_if(self, stmt: IfStmt):
+        """Generate code for if statement."""
+        condition_reg = self.generate_expression(stmt.condition)
+        else_label = self.generate_label("else")
+        end_label = self.generate_label("endif")
+        
+        # Test condition: if condition == 0 (false), jump to else/end
+        zero_reg = self.reg_allocator.get_temp_register()
+        self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+        
+        # Conditional jump: if condition == 0 (false), jump to else/end
+        # cmovz r31, condition_reg, label means: if condition_reg == 0, set r31 to label (jump)
+        if stmt.else_branch:
+            self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {else_label}")
+        else:
+            self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {end_label}")
+        
+        self.reg_allocator.free_temp(zero_reg)
+        self.reg_allocator.free_temp(condition_reg)
+        
+        # Then branch
+        self.generate_statement(stmt.then_branch)
+        
+        # Unconditional jump to end (skip else branch)
+        if stmt.else_branch:
+            self.emit(f"mov r31, {end_label}")
+        
+        # Else branch
+        if stmt.else_branch:
+            self.emit_label(else_label)
+            self.generate_statement(stmt.else_branch)
+        
+        self.emit_label(end_label)
+    
+    def generate_while(self, stmt: WhileStmt):
+        """Generate code for while loop."""
+        start_label = self.generate_label("while_start")
+        end_label = self.generate_label("while_end")
+        
+        self.emit_label(start_label)
+        
+        # Evaluate condition
+        condition_reg = self.generate_expression(stmt.condition)
+        zero_reg = self.reg_allocator.get_temp_register()
+        self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+        
+        # Conditional jump: if condition == 0 (false), exit loop
+        # cmovz r31, condition_reg, end_label means: if condition_reg == 0, set r31 to end_label (jump)
+        self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {end_label}")
+        
+        self.reg_allocator.free_temp(zero_reg)
+        self.reg_allocator.free_temp(condition_reg)
+        
+        # Loop body
+        self.generate_statement(stmt.body)
+        
+        # Unconditional jump back to start
+        self.emit(f"mov r31, {start_label}")
+        
+        self.emit_label(end_label)
+    
+    def generate_for(self, stmt: ForStmt):
+        """Generate code for for loop."""
+        # Initialize
+        if stmt.init:
+            self.generate_statement(stmt.init)
+        
+        start_label = self.generate_label("for_start")
+        end_label = self.generate_label("for_end")
+        
+        self.emit_label(start_label)
+        
+        # Condition check
+        if stmt.condition:
+            condition_reg = self.generate_expression(stmt.condition)
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            
+            # Conditional jump: if condition == 0 (false), exit loop
+            # cmovz r31, condition_reg, end_label means: if condition_reg == 0, set r31 to end_label (jump)
+            self.emit(f"cmovz r31, {self.get_register_name(condition_reg)}, {end_label}")
+            
+            self.reg_allocator.free_temp(zero_reg)
+            self.reg_allocator.free_temp(condition_reg)
+        
+        # Loop body
+        self.generate_statement(stmt.body)
+        
+        # Increment
+        if stmt.increment:
+            self.generate_statement(stmt.increment)
+        
+        # Unconditional jump back to start
+        self.emit(f"mov r31, {start_label}")
+        
+        self.emit_label(end_label)
+    
+    def generate_block(self, block: Block):
+        """Generate code for block."""
+        for stmt in block.statements:
+            self.generate_statement(stmt)
+    
+    def generate_increment(self, stmt: Increment):
+        """Generate code for increment statement."""
+        reg = self.reg_allocator.get_register(stmt.name)
+        if reg is None:
+            if stmt.name.startswith('r') and stmt.name[1:].isdigit():
+                reg = int(stmt.name[1:])
+            else:
+                raise RuntimeError(f"Undefined variable: {stmt.name}")
+        
+        one_reg = self.reg_allocator.get_temp_register()
+        self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+        self.emit(f"add {self.get_register_name(reg)}, {self.get_register_name(reg)}, {self.get_register_name(one_reg)}")
+        self.reg_allocator.free_temp(one_reg)
+    
+    def generate_decrement(self, stmt: Decrement):
+        """Generate code for decrement statement."""
+        reg = self.reg_allocator.get_register(stmt.name)
+        if reg is None:
+            if stmt.name.startswith('r') and stmt.name[1:].isdigit():
+                reg = int(stmt.name[1:])
+            else:
+                raise RuntimeError(f"Undefined variable: {stmt.name}")
+        
+        one_reg = self.reg_allocator.get_temp_register()
+        self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+        self.emit(f"sub {self.get_register_name(reg)}, {self.get_register_name(reg)}, {self.get_register_name(one_reg)}")
+        self.reg_allocator.free_temp(one_reg)

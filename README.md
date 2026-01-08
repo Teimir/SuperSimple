@@ -80,6 +80,23 @@ Example programs are organized in the `examples/` directory by category:
 
 See `examples/README.md` for detailed descriptions.
 
+## Compilation
+
+Compile a source file to FASM assembly:
+
+```bash
+python compile.py <source_file> [output_file]
+```
+
+Example:
+```bash
+python compile.py examples/basic/sum_range.sc
+```
+
+This generates a `.asm` file that can be compiled with FASM to produce binary and MIF files for the hardware.
+
+See [CODE_GENERATION.md](CODE_GENERATION.md) for details on code generation.
+
 ## Project Structure
 
 ```

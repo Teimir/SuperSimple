@@ -38,8 +38,12 @@ The only data type in the language. All variables, function parameters, and retu
 
 ### Literals
 
-- Integer literals: sequences of digits (0-9)
-- Examples: `0`, `42`, `1000`, `4294967295`
+- **Decimal literals**: sequences of digits (0-9)
+  - Examples: `0`, `42`, `1000`, `4294967295`
+- **Hexadecimal literals**: prefixed with `0x` or `0X`, followed by hexadecimal digits (0-9, A-F, a-f)
+  - Examples: `0x0`, `0xFF`, `0x10`, `0X1A2B`, `0xABCDEF`
+  - Both uppercase and lowercase letters A-F are supported
+  - Mixed case is allowed: `0xAa`, `0XbB`
 
 ### Keywords
 
@@ -393,7 +397,29 @@ function main() {
 }
 ```
 
-### Example 6: Using Include Directives
+### Example 6: Hexadecimal Literals
+
+```c
+function main() {
+    uint32 hex_val = 0xFF;        // 255 in decimal
+    uint32 bitmask = 0x0F;        // 15 in decimal (lower 4 bits)
+    uint32 flags = 0x1234ABCD;    // 305441741 in decimal
+    
+    // Hex literals in expressions
+    uint32 result = hex_val & bitmask;  // 255 & 15 = 15
+    result = 0x10 + 0x20;               // 16 + 32 = 48
+    
+    // Using hex in loops
+    uint32 i;
+    for (i = 0x00; i < 0x10; i++) {
+        result = result + i;
+    }
+    
+    return result;
+}
+```
+
+### Example 7: Using Include Directives
 
 ```c
 // File: math_lib.sc
@@ -540,6 +566,11 @@ value = set_bit(value, 5);      // Set bit 5
 value = clear_bit(value, 5);    // Clear bit 5
 value = toggle_bit(value, 3);   // Toggle bit 3
 uint32 bit = get_bit(value, 5);  // Get bit 5 value
+
+// Hex literals are commonly used for bit masks
+uint32 mask = 0xFF;              // 8 bits set
+uint32 flags = 0x0F;             // Lower 4 bits
+uint32 result = value & mask;    // Apply mask using hex literal
 ```
 
 **Functions:**

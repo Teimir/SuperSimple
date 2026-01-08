@@ -666,7 +666,11 @@ class Parser:
         # Literal
         if token.type == TokenType.LITERAL:
             self.advance()
-            return Literal(int(token.value))
+            try:
+                # int(value, 0) auto-detects base: 0x for hex, no prefix for decimal
+                return Literal(int(token.value, 0))
+            except ValueError as e:
+                raise SyntaxError(f"Invalid numeric literal: {token.value} at line {token.line}, column {token.column}")
         
         # Identifier or function call
         if token.type == TokenType.IDENTIFIER:

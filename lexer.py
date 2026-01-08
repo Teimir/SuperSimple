@@ -160,8 +160,22 @@ class Lexer:
         return self.source[start:self.pos]
     
     def read_number(self) -> str:
-        """Read a numeric literal."""
+        """Read a numeric literal (decimal or hexadecimal)."""
         start = self.pos
+        
+        # Check for hex prefix: 0x or 0X
+        if self.current_char() == '0':
+            peek = self.peek_char()
+            if peek in ['x', 'X']:
+                # It's a hex literal: consume '0' and 'x'/'X'
+                self.advance()  # consume '0'
+                self.advance()  # consume 'x' or 'X'
+                # Read hex digits
+                while self.current_char() and self.current_char() in '0123456789ABCDEFabcdef':
+                    self.advance()
+                return self.source[start:self.pos]
+        
+        # Decimal number (includes standalone '0')
         while self.current_char() and self.current_char().isdigit():
             self.advance()
         return self.source[start:self.pos]

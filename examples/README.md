@@ -8,6 +8,7 @@ This directory contains example programs organized by category.
 Basic programming examples:
 - `sum_range.sc` - Sum of numbers using for loop
 - `nested_loops.sc` - Nested for loops example
+- `hello_world/hello_world.sc` - Hello World example (outputs "Hello World" to UART)
 
 ### `hardware/`
 Hardware-specific examples for MCU programming:

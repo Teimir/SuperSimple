@@ -9,11 +9,12 @@ A minimal, educational C-style programming language with support for:
 
 ## Documentation
 
-- **[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md)** - Complete language specification and grammar
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design overview
-- **[INCLUDE_MECHANISM.md](INCLUDE_MECHANISM.md)** - Detailed explanation of how `#include` directives work
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development guidelines and contribution instructions
-- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Project file organization
+- **[doc/LANGUAGE_SPEC.md](doc/LANGUAGE_SPEC.md)** - Complete language specification and grammar
+- **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)** - System architecture and design overview
+- **[doc/INCLUDE_MECHANISM.md](doc/INCLUDE_MECHANISM.md)** - Detailed explanation of how `#include` directives work
+- **[doc/CONTRIBUTING.md](doc/CONTRIBUTING.md)** - Development guidelines and contribution instructions
+- **[doc/PROJECT_STRUCTURE.md](doc/PROJECT_STRUCTURE.md)** - Project file organization
+- **[doc/CODE_GENERATION.md](doc/CODE_GENERATION.md)** - Code generation and assembly translation details
 - **[examples/README.md](examples/README.md)** - Examples directory structure and descriptions
 
 ## Installation
@@ -43,6 +44,7 @@ Example programs are organized in the `examples/` directory by category:
 ### Basic Examples (`examples/basic/`)
 - `sum_range.sc` - Sum of numbers using for loop
 - `nested_loops.sc` - Nested for loops example
+- `hello_world/hello_world.sc` - Hello World example (outputs to UART)
 
 ### Hardware Examples (`examples/hardware/`)
 - `register_test.sc` - Register variable access
@@ -109,7 +111,7 @@ This generates:
 The compiler uses `int_pack/FASM.EXE` to compile assembly and `int_pack/interpreter_x64.exe` to run binaries.
 The `int_pack/ISA.inc` file is automatically included in generated assembly files.
 
-See [CODE_GENERATION.md](CODE_GENERATION.md) for details on code generation.
+See [doc/CODE_GENERATION.md](doc/CODE_GENERATION.md) for details on code generation.
 
 ## Project Structure
 
@@ -120,26 +122,38 @@ aiproj/
 ├── parser.py               # Parser (tokens → AST)
 ├── interpreter.py          # Interpreter (AST → execution)
 ├── preprocessor.py         # Preprocessor (#include handling)
+├── codegen.py              # Code generator (AST → assembly)
+├── compile.py              # Compilation script
 │
-├── LANGUAGE_SPEC.md        # Complete language specification
-├── INCLUDE_MECHANISM.md    # #include directive documentation
 ├── README.md               # This file
 │
 ├── examples/               # Example programs
 │   ├── basic/             # Basic programming examples
+│   │   └── hello_world/   # Hello World example
 │   ├── hardware/          # Hardware/MCU examples
 │   ├── operators/         # Operator testing examples
 │   ├── includes/          # Include directive examples
 │   └── advanced/          # Advanced programming examples
 │
-├── test/                   # Test programs
+├── user_examples/          # User example programs
+│   ├── simple_return/     # Simple return example
+│   ├── complex_example/   # Complex example with functions
+│   └── test_example/      # Test example
 │
-└── test_*.py              # Unit tests
-    ├── test_lexer.py
-    ├── test_parser.py
-    ├── test_interpreter.py
-    ├── test_preprocessor.py
-    └── run_tests.py       # Test runner
+├── self_tests/            # Unit tests
+│   ├── test_lexer.py
+│   ├── test_parser.py
+│   ├── test_interpreter.py
+│   ├── test_preprocessor.py
+│   └── run_tests.py       # Test runner
+│
+└── doc/                   # Documentation files
+    ├── LANGUAGE_SPEC.md
+    ├── ARCHITECTURE.md
+    ├── CODE_GENERATION.md
+    ├── CONTRIBUTING.md
+    ├── INCLUDE_MECHANISM.md
+    └── PROJECT_STRUCTURE.md
 ```
 
 ### Core Components
@@ -205,15 +219,16 @@ function main() {
 The project includes comprehensive unit tests for all components. Run all tests using:
 
 ```bash
-python run_tests.py
+python self_tests/run_tests.py
 ```
 
 Or run individual test files:
 
 ```bash
-python -m unittest test_lexer
-python -m unittest test_parser
-python -m unittest test_interpreter
+python -m unittest self_tests.test_lexer
+python -m unittest self_tests.test_parser
+python -m unittest self_tests.test_interpreter
+python -m unittest self_tests.test_preprocessor
 ```
 
 ### Test Coverage
@@ -237,7 +252,7 @@ All tests use Python's built-in `unittest` framework - no external dependencies 
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and contribution instructions.
+See [doc/CONTRIBUTING.md](doc/CONTRIBUTING.md) for development guidelines and contribution instructions.
 
 ## License
 

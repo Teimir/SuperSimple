@@ -6,42 +6,58 @@ This document provides an overview of the project file organization.
 
 ```
 aiproj/
-├── Core Implementation Files
+├── Core Implementation Files (root)
 │   ├── main.py              # Main entry point
 │   ├── lexer.py             # Tokenizer (source → tokens)
 │   ├── parser.py            # Parser (tokens → AST)
 │   ├── interpreter.py       # Interpreter (AST → execution)
-│   └── preprocessor.py      # Preprocessor (#include handling)
+│   ├── preprocessor.py      # Preprocessor (#include handling)
+│   ├── codegen.py           # Code generator (AST → assembly)
+│   └── compile.py           # Compilation script
 │
 ├── Documentation
-│   ├── README.md            # Main project documentation
-│   ├── LANGUAGE_SPEC.md     # Complete language specification
-│   ├── ARCHITECTURE.md       # System architecture overview
-│   ├── INCLUDE_MECHANISM.md  # #include directive details
-│   ├── CONTRIBUTING.md      # Development guidelines
-│   └── PROJECT_STRUCTURE.md  # This file
+│   ├── README.md            # Main project documentation (root)
+│   └── doc/                 # Documentation directory
+│       ├── LANGUAGE_SPEC.md     # Complete language specification
+│       ├── ARCHITECTURE.md       # System architecture overview
+│       ├── INCLUDE_MECHANISM.md  # #include directive details
+│       ├── CONTRIBUTING.md      # Development guidelines
+│       ├── CODE_GENERATION.md   # Code generation details
+│       └── PROJECT_STRUCTURE.md  # This file
 │
 ├── Examples
 │   ├── examples/
 │   │   ├── basic/           # Basic programming examples
+│   │   │   └── hello_world/ # Hello World example
 │   │   ├── hardware/        # Hardware/MCU examples
 │   │   ├── operators/       # Operator testing examples
 │   │   ├── includes/        # Include directive examples
 │   │   ├── advanced/        # Advanced programming examples
 │   │   └── README.md        # Examples documentation
-│   └── test/                # Test programs
+│   └── user_examples/       # User example programs
+│       ├── simple_return/   # Simple return example
+│       ├── complex_example/ # Complex example with functions
+│       └── test_example/    # Test example
 │
 ├── Tests
-│   ├── test_lexer.py        # Lexer unit tests
-│   ├── test_parser.py       # Parser unit tests
-│   ├── test_interpreter.py  # Interpreter unit tests
-│   ├── test_preprocessor.py # Preprocessor unit tests
-│   └── run_tests.py        # Test runner script
+│   └── self_tests/          # Unit tests directory
+│       ├── test_lexer.py        # Lexer unit tests
+│       ├── test_parser.py       # Parser unit tests
+│       ├── test_interpreter.py  # Interpreter unit tests
+│       ├── test_preprocessor.py # Preprocessor unit tests
+│       └── run_tests.py        # Test runner script
 │
-└── ISA Documentation
-    └── isa/                 # Instruction Set Architecture docs
-        ├── README.md
-        └── ISA.xlsx
+├── ISA Documentation
+│   └── isa/                 # Instruction Set Architecture docs
+│       ├── README.md
+│       └── ISA.xlsx
+│
+└── int_pack/                # FASM tools and includes
+    ├── FASM.EXE             # FASM assembler
+    ├── interpreter_x64.exe  # Binary interpreter
+    ├── ISA.inc              # ISA definitions
+    ├── macros.inc           # FASM macros
+    └── ...
 ```
 
 ## File Descriptions
@@ -66,16 +82,20 @@ aiproj/
 ### Examples
 
 - **`examples/basic/`**: Simple programming examples
+  - **`hello_world/`**: Hello World example with UART output
 - **`examples/hardware/`**: MCU hardware interaction examples
 - **`examples/operators/`**: Operator testing and demonstration
 - **`examples/includes/`**: File inclusion examples
 - **`examples/advanced/`**: Complex programming patterns
-- **`test/`**: Additional test programs
+- **`user_examples/`**: User-contributed example programs
+  - **`simple_return/`**: Simple return example
+  - **`complex_example/`**: Complex example with functions
+  - **`test_example/`**: Test example
 
 ### Tests
 
-- **`test_*.py`**: Unit tests for each component
-- **`run_tests.py`**: Test runner that executes all tests
+- **`self_tests/test_*.py`**: Unit tests for each component
+- **`self_tests/run_tests.py`**: Test runner that executes all tests
 
 ## Code Organization Principles
 

@@ -535,12 +535,12 @@ class CodeGenerator:
         return_addr_label = self.generate_label("ret_addr")
         
         # Save return address in r:30 (link register)
-        # In FASM with ISA.inc, use 'addr' prefix for label addresses
-        self.emit(f"mov r:30, addr {return_addr_label}")
+        # In FASM with ISA.inc, use 'label addr' syntax (not 'addr label')
+        self.emit(f"mov r:30, {return_addr_label} addr")
         
         # Jump to function by setting r:31 (instruction pointer) to function label
         func_label = self.function_labels[call.name]
-        self.emit(f"mov r:31, addr {func_label}")
+        self.emit(f"mov r:31, {func_label} addr")
         
         # Return address label - execution continues here after function returns
         self.emit_label(return_addr_label)
@@ -653,11 +653,11 @@ class CodeGenerator:
         self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
         
         # Conditional jump: if condition == 0 (false), jump to else/end
-        # cmovz r:31, condition_reg, addr label means: if condition_reg == 0, set r:31 to label address (jump)
+        # cmovz r:31, condition_reg, label addr means: if condition_reg == 0, set r:31 to label address (jump)
         if stmt.else_branch:
-            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {else_label}")
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {else_label} addr")
         else:
-            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {end_label}")
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
         
         self.reg_allocator.free_temp(zero_reg)
         self.reg_allocator.free_temp(condition_reg)
@@ -667,7 +667,7 @@ class CodeGenerator:
         
         # Unconditional jump to end (skip else branch)
         if stmt.else_branch:
-            self.emit(f"mov r:31, addr {end_label}")
+            self.emit(f"mov r:31, {end_label} addr")
         
         # Else branch
         if stmt.else_branch:
@@ -689,8 +689,8 @@ class CodeGenerator:
         self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
         
         # Conditional jump: if condition == 0 (false), exit loop
-        # cmovz r:31, condition_reg, addr end_label means: if condition_reg == 0, set r:31 to end_label address (jump)
-        self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {end_label}")
+        # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)
+        self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
         
         self.reg_allocator.free_temp(zero_reg)
         self.reg_allocator.free_temp(condition_reg)
@@ -699,7 +699,7 @@ class CodeGenerator:
         self.generate_statement(stmt.body)
         
         # Unconditional jump back to start
-        self.emit(f"mov r:31, addr {start_label}")
+        self.emit(f"mov r:31, {start_label} addr")
         
         self.emit_label(end_label)
     
@@ -721,8 +721,8 @@ class CodeGenerator:
             self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
             
             # Conditional jump: if condition == 0 (false), exit loop
-            # cmovz r:31, condition_reg, addr end_label means: if condition_reg == 0, set r:31 to end_label address (jump)
-            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, addr {end_label}")
+            # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
             
             self.reg_allocator.free_temp(zero_reg)
             self.reg_allocator.free_temp(condition_reg)
@@ -735,7 +735,7 @@ class CodeGenerator:
             self.generate_statement(stmt.increment)
         
         # Unconditional jump back to start
-        self.emit(f"mov r:31, addr {start_label}")
+        self.emit(f"mov r:31, {start_label} addr")
         
         self.emit_label(end_label)
     

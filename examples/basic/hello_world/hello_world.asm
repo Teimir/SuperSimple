@@ -1,7 +1,7 @@
 ;format binary
 
-include "../../int_pack/ISA.inc"
-include "../../int_pack/macros.inc"
+include "../../../int_pack/ISA.inc"
+include "../../../int_pack/macros.inc"
 
 entry main
 

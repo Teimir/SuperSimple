@@ -301,6 +301,8 @@ class Interpreter:
             '*': lambda l, r: (l * r) & 0xFFFFFFFF,
             '/': lambda l, r: (l // r) & 0xFFFFFFFF if r != 0 else self._error("Division by zero"),
             '%': lambda l, r: (l % r) & 0xFFFFFFFF if r != 0 else self._error("Modulo by zero"),
+            '<<': lambda l, r: ((l << (r & 0x1F)) & 0xFFFFFFFF),  # Shift left, limit shift to 31 bits
+            '>>': lambda l, r: ((l >> (r & 0x1F)) & 0xFFFFFFFF),  # Shift right, limit shift to 31 bits
             '==': lambda l, r: 1 if l == r else 0,
             '!=': lambda l, r: 1 if l != r else 0,
             '<': lambda l, r: 1 if l < r else 0,

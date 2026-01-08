@@ -605,14 +605,27 @@ class Parser:
             left = BinaryOp(op.value, left, right)
         return left
     
+    def parse_shift(self) -> Expression:
+        """Parse shift expressions (<<, >>)."""
+        left = self.parse_additive()
+        while self.current_token() and self.current_token().type in [TokenType.SHIFT_LEFT, TokenType.SHIFT_RIGHT]:
+            op = self.advance()
+            # #region agent log
+            with open('e:\\aiproj\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
+                f.write('{"id":"log_parser_shift","timestamp":' + str(int(__import__('time').time() * 1000)) + ',"location":"parser.py:608","message":"Parsing shift operator","data":{"operator":"' + op.value + '","tokenType":"' + op.type.name + '"},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"C"}\n')
+            # #endregion agent log
+            right = self.parse_additive()
+            left = BinaryOp(op.value, left, right)
+        return left
+    
     def parse_relational(self) -> Expression:
         """Parse relational expressions."""
-        left = self.parse_additive()
+        left = self.parse_shift()
         while self.current_token() and self.current_token().type in [
             TokenType.LESS, TokenType.LESS_EQUAL, TokenType.GREATER, TokenType.GREATER_EQUAL
         ]:
             op = self.advance()
-            right = self.parse_additive()
+            right = self.parse_shift()
             left = BinaryOp(op.value, left, right)
         return left
     

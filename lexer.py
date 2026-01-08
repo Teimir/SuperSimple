@@ -41,6 +41,9 @@ class TokenType(Enum):
     AND = "AND"
     OR = "OR"
     NOT = "NOT"
+    BITWISE_AND = "BITWISE_AND"
+    BITWISE_OR = "BITWISE_OR"
+    BITWISE_XOR = "BITWISE_XOR"
     INCREMENT = "INCREMENT"
     DECREMENT = "DECREMENT"
     
@@ -230,10 +233,22 @@ class Lexer:
                 self.tokens.append(Token(TokenType.AND, "&&", line, column))
                 continue
             
+            # Check for single & (bitwise AND) - must check after &&
+            if char == '&':
+                self.advance()
+                self.tokens.append(Token(TokenType.BITWISE_AND, "&", line, column))
+                continue
+            
             if char == '|' and self.peek_char() == '|':
                 self.advance()
                 self.advance()
                 self.tokens.append(Token(TokenType.OR, "||", line, column))
+                continue
+            
+            # Check for single | (bitwise OR) - must check after ||
+            if char == '|':
+                self.advance()
+                self.tokens.append(Token(TokenType.BITWISE_OR, "|", line, column))
                 continue
             
             if char == '+' and self.peek_char() == '+':
@@ -259,6 +274,7 @@ class Lexer:
                 '<': TokenType.LESS,
                 '>': TokenType.GREATER,
                 '!': TokenType.NOT,
+                '^': TokenType.BITWISE_XOR,
                 ';': TokenType.SEMICOLON,
                 ',': TokenType.COMMA,
                 '(': TokenType.LPAREN,

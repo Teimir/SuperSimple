@@ -187,11 +187,12 @@ class FunctionDef(ASTNode):
 
 
 class Program(ASTNode):
-    def __init__(self, functions: List[FunctionDef]):
+    def __init__(self, functions: List[FunctionDef], global_vars: List[VarDecl] = None):
         self.functions = functions
+        self.global_vars = global_vars or []
     
     def __repr__(self):
-        return f"Program({self.functions})"
+        return f"Program({self.functions}, globals={self.global_vars})"
 
 
 class Parser:
@@ -231,16 +232,29 @@ class Parser:
     def parse(self) -> Program:
         """Parse the entire program."""
         functions = []
+        global_vars = []
+        
         while self.current_token() and self.current_token().type != TokenType.EOF:
-            if self.current_token().type == TokenType.FUNCTION:
+            # Check for interrupt keyword before function
+            if (self.current_token().type == TokenType.FUNCTION or 
+                (self.current_token().type == TokenType.INTERRUPT and 
+                 self.peek_token() and self.peek_token().type == TokenType.FUNCTION)):
                 functions.append(self.parse_function())
+            # Check for global variable declarations (uint32, register, volatile)
+            elif (self.current_token().type == TokenType.UINT32 or
+                  self.current_token().type == TokenType.REGISTER or
+                  self.current_token().type == TokenType.VOLATILE):
+                global_vars.append(self.parse_var_decl())
             else:
                 raise SyntaxError(f"Unexpected token: {self.current_token()} at line {self.current_token().line}")
         
         if not any(f.name == 'main' for f in functions):
             raise SyntaxError("Program must have a 'main' function")
         
-        return Program(functions)
+        # Store global variables in program (for interpreter to use)
+        program = Program(functions)
+        program.global_vars = global_vars
+        return program
     
     def parse_function(self) -> FunctionDef:
         """Parse a function definition."""
@@ -294,8 +308,10 @@ class Parser:
         if not token:
             raise SyntaxError("Unexpected end of file")
         
-        # Variable declaration
-        if token.type == TokenType.UINT32:
+        # Variable declaration (can start with register, volatile, or uint32)
+        if (token.type == TokenType.UINT32 or 
+            token.type == TokenType.REGISTER or 
+            token.type == TokenType.VOLATILE):
             return self.parse_var_decl()
         
         # Prefix increment/decrement
@@ -536,8 +552,35 @@ class Parser:
     
     def parse_logical_and(self) -> Expression:
         """Parse logical AND expression."""
-        left = self.parse_equality()
+        left = self.parse_bitwise_or()
         while self.current_token() and self.current_token().type == TokenType.AND:
+            op = self.advance()
+            right = self.parse_bitwise_or()
+            left = BinaryOp(op.value, left, right)
+        return left
+    
+    def parse_bitwise_or(self) -> Expression:
+        """Parse bitwise OR expression."""
+        left = self.parse_bitwise_xor()
+        while self.current_token() and self.current_token().type == TokenType.BITWISE_OR:
+            op = self.advance()
+            right = self.parse_bitwise_xor()
+            left = BinaryOp(op.value, left, right)
+        return left
+    
+    def parse_bitwise_xor(self) -> Expression:
+        """Parse bitwise XOR expression."""
+        left = self.parse_bitwise_and()
+        while self.current_token() and self.current_token().type == TokenType.BITWISE_XOR:
+            op = self.advance()
+            right = self.parse_bitwise_and()
+            left = BinaryOp(op.value, left, right)
+        return left
+    
+    def parse_bitwise_and(self) -> Expression:
+        """Parse bitwise AND expression."""
+        left = self.parse_equality()
+        while self.current_token() and self.current_token().type == TokenType.BITWISE_AND:
             op = self.advance()
             right = self.parse_equality()
             left = BinaryOp(op.value, left, right)

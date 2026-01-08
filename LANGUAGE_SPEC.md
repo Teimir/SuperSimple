@@ -9,9 +9,12 @@ This is a simple, C-style programming language with a minimal feature set. The l
 - **Single Data Type**: Only 32-bit unsigned integers (`uint32`) are supported
 - **Functions**: User-defined functions with parameters and return values
 - **Control Flow**: `for` and `while` loops
-- **Expressions**: Arithmetic and logical operations
+- **Expressions**: Arithmetic, logical, and bitwise operations
 - **Statements**: Variable declarations, assignments, function calls, and control flow
 - **File Includes**: `#include` directive for modular code organization
+- **Hardware Support**: Register access, GPIO, UART, Timer operations
+- **Interrupts**: Interrupt service routines (ISRs)
+- **Bit Manipulation**: Built-in bit manipulation functions
 
 ## Data Types
 
@@ -46,6 +49,9 @@ while     (while loop)
 if        (conditional statement)
 else      (else clause)
 return    (return statement)
+register  (register storage class)
+volatile  (volatile qualifier)
+interrupt (interrupt function qualifier)
 ```
 
 ### Operators
@@ -69,6 +75,12 @@ return    (return statement)
 - `&&` (logical AND)
 - `||` (logical OR)
 - `!` (logical NOT)
+
+**Bitwise:**
+- `&` (bitwise AND)
+- `|` (bitwise OR)
+- `^` (bitwise XOR)
+- `~` (bitwise NOT)
 
 **Assignment:**
 - `=` (assignment)
@@ -399,6 +411,149 @@ function main() {
     result = result + square(4);
     return result;  // 15 + 16 = 31
 }
+```
+
+## Hardware Features
+
+The language includes built-in support for MCU hardware peripherals.
+
+### Register Access
+
+CPU registers (r0-r31) can be accessed directly:
+
+```c
+register uint32 r0 = 10;
+register uint32 r1 = 20;
+register uint32 r2 = r0 + r1;  // r2 = 30
+```
+
+- Register variables must be named `r0` through `r31`
+- Register r31 (instruction pointer) is read-only
+- Registers are implicitly volatile
+
+### GPIO Operations
+
+Control GPIO pins for digital I/O:
+
+```c
+// Configure pin 0 as output
+gpio_set(0, GPIO_OUTPUT, GPIO_NONE);
+
+// Write to GPIO
+gpio_write(0, GPIO_HIGH);
+
+// Read from GPIO
+uint32 value = gpio_read(0);
+```
+
+**Functions:**
+- `gpio_set(pin, direction, mode)` - Configure GPIO pin
+- `gpio_read(pin)` - Read GPIO pin value
+- `gpio_write(pin, value)` - Write GPIO pin value
+
+### UART Operations
+
+Serial communication via UART:
+
+```c
+// Set baud rate
+uart_set_baud(115200);
+
+// Check status
+uint32 status = uart_get_status();
+
+// Read from UART
+uint32 data = uart_read();
+
+// Write to UART
+uart_write(data);
+```
+
+**Functions:**
+- `uart_set_baud(baud_rate)` - Set UART baud rate
+- `uart_get_status()` - Get UART status
+- `uart_read()` - Read byte from UART
+- `uart_write(data)` - Write byte to UART
+
+### Timer Operations
+
+Hardware timer control:
+
+```c
+// Configure timer
+timer_set_mode(TIMER_PERIODIC);
+timer_set_period(1000000);  // 1 second in microseconds
+timer_start();
+
+// Check if expired
+if (timer_expired()) {
+    timer_reset();
+}
+```
+
+**Functions:**
+- `timer_set_mode(mode)` - Set timer mode (ONESHOT, PERIODIC, CONTINUOUS)
+- `timer_set_period(microseconds)` - Set timer period
+- `timer_start()` - Start timer
+- `timer_stop()` - Stop timer
+- `timer_reset()` - Reset timer counter
+- `timer_get_value()` - Get current timer value
+- `timer_expired()` - Check if timer expired
+
+### Interrupt Service Routines
+
+Handle hardware interrupts:
+
+```c
+volatile uint32 counter = 0;
+
+interrupt function timer_isr() {
+    counter++;
+    timer_reset();
+}
+
+function main() {
+    timer_set_mode(TIMER_PERIODIC);
+    timer_set_period(1000000);
+    timer_start();
+    enable_interrupts();
+    
+    while (counter < 10) {
+        // Main loop
+    }
+    
+    disable_interrupts();
+    return counter;
+}
+```
+
+### Bit Manipulation
+
+Built-in bit manipulation functions:
+
+```c
+uint32 value = 0;
+
+value = set_bit(value, 5);      // Set bit 5
+value = clear_bit(value, 5);    // Clear bit 5
+value = toggle_bit(value, 3);   // Toggle bit 3
+uint32 bit = get_bit(value, 5);  // Get bit 5 value
+```
+
+**Functions:**
+- `set_bit(value, bit)` - Set a bit
+- `clear_bit(value, bit)` - Clear a bit
+- `toggle_bit(value, bit)` - Toggle a bit
+- `get_bit(value, bit)` - Get bit value (0 or 1)
+
+### Delay Functions
+
+Software delays:
+
+```c
+delay_ms(100);      // Delay 100 milliseconds
+delay_us(1000);     // Delay 1000 microseconds
+delay_cycles(1000); // Delay N CPU cycles
 ```
 
 ## Implementation Notes

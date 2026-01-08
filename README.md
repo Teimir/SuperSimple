@@ -33,31 +33,47 @@ python main.py examples/factorial.sc
 
 ## Examples
 
-Several example programs are included in the `examples/` directory:
+Example programs are organized in the `examples/` directory by category:
 
-### Basic Examples
-- `simple.sc` - Basic arithmetic and variables
-- `factorial.sc` - Factorial calculation using while loop
-- `fibonacci.sc` - Fibonacci sequence calculation
+### Basic Examples (`examples/basic/`)
 - `sum_range.sc` - Sum of numbers using for loop
 - `nested_loops.sc` - Nested for loops example
-- `gcd.sc` - Greatest Common Divisor using Euclidean algorithm
 
-### Advanced Examples
-- `overflow.sc` - Test integer overflow/wrap-around behavior
-- `recursion.sc` - Recursive factorial and Fibonacci examples
-- `scope_test.sc` - Variable shadowing and scope testing
-- `operator_precedence.sc` - Complex expressions testing operator precedence
-- `complex_nested.sc` - Complex nested structures (nested loops, nested ifs)
-- `prefix_vs_postfix.sc` - Demonstrate prefix vs postfix increment/decrement
-- `logical_operators.sc` - Comprehensive logical operator tests
-- `relational_operators.sc` - All relational operators tests
+### Hardware Examples (`examples/hardware/`)
+- `register_test.sc` - Register variable access
+- `volatile_test.sc` - Volatile variables
+- `gpio_blink.sc` - GPIO LED blink example
+- `uart_echo.sc` - UART echo example
+- `timer_example.sc` - Timer usage example
+- `interrupt_example.sc` - Timer interrupt example
+- `bit_manipulation.sc` - Bit manipulation functions
+- Header files: `gpio.h`, `uart.h`, `timer.h`, `hardware.h`
 
-### Include Examples
-- `include_example.sc` - Basic include directive example
-- `nested_include.sc` - Multiple nested includes example
-- `utils.sc` - Utility functions library (for includes)
-- `math_ops.sc` - Math operations library (for includes)
+### Operator Examples (`examples/operators/`)
+- `logical_operators.sc` - Logical operators tests
+- `relational_operators.sc` - Relational operators tests
+- `operator_precedence.sc` - Operator precedence testing
+- `prefix_vs_postfix.sc` - Prefix vs postfix increment/decrement
+- `increment_test.sc` - Increment/decrement operators
+
+### Include Examples (`examples/includes/`)
+- `include_example.sc` - Basic include directive
+- `nested_include.sc` - Nested includes
+- `circular_a.sc`, `circular_b.sc` - Circular include tests
+- `utils.sc` - Utility functions library
+- `math_ops.sc` - Math operations library
+
+### Advanced Examples (`examples/advanced/`)
+- `fibonacci.sc` - Fibonacci sequence
+- `recursion.sc` - Recursive functions
+- `gcd.sc` - Greatest Common Divisor
+- `scope_test.sc` - Variable scoping
+- `complex_nested.sc` - Complex nested structures
+- `overflow.sc` - Integer overflow testing
+- `for_increment.sc` - For loop with increment
+- `for_decrement.sc` - For loop with decrement
+
+See `examples/README.md` for detailed descriptions.
 
 ## Project Structure
 
@@ -98,8 +114,18 @@ Several example programs are included in the `examples/` directory:
 - Circular include detection
 - Relative path resolution
 
+### Hardware Support
+- **Register Access**: Direct CPU register access (r0-r31)
+- **GPIO**: Digital I/O operations (gpio_set, gpio_read, gpio_write)
+- **UART**: Serial communication (uart_set_baud, uart_read, uart_write)
+- **Timer**: Hardware timer control (timer_set_mode, timer_start, timer_stop, etc.)
+- **Interrupts**: Interrupt service routines (ISRs)
+- **Bit Manipulation**: Built-in bit operations (set_bit, clear_bit, toggle_bit, get_bit)
+- **Delay Functions**: Software delays (delay_ms, delay_us, delay_cycles)
+
 ### Operators
 - Arithmetic: `+`, `-`, `*`, `/`, `%`
+- Bitwise: `&`, `|`, `^`, `~`
 - Increment/Decrement: `++`, `--` (both prefix and postfix)
 - Relational: `==`, `!=`, `<`, `<=`, `>`, `>=`
 - Logical: `&&`, `||`, `!`

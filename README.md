@@ -15,7 +15,7 @@ A minimal, educational C-style programming language with support for:
 - **[doc/CONTRIBUTING.md](doc/CONTRIBUTING.md)** - Development guidelines and contribution instructions
 - **[doc/PROJECT_STRUCTURE.md](doc/PROJECT_STRUCTURE.md)** - Project file organization
 - **[doc/CODE_GENERATION.md](doc/CODE_GENERATION.md)** - Code generation and assembly translation details
-- **[examples/README.md](examples/README.md)** - Examples directory structure and descriptions
+- **[test_examples/README.md](test_examples/README.md)** - Test examples directory structure and descriptions
 
 ### LaTeX Documentation
 
@@ -41,19 +41,19 @@ The program will execute and print the return value from the `main` function.
 Example:
 
 ```bash
-python main.py examples/factorial.sc
+python main.py test_examples/basic/sum_range.sc
 ```
 
 ## Examples
 
-Example programs are organized in the `examples/` directory by category:
+Example programs are organized in the `test_examples/` directory by category:
 
-### Basic Examples (`examples/basic/`)
+### Basic Examples (`test_examples/basic/`)
 - `sum_range.sc` - Sum of numbers using for loop
 - `nested_loops.sc` - Nested for loops example
 - `hello_world/hello_world.sc` - Hello World example (outputs to UART)
 
-### Hardware Examples (`examples/hardware/`)
+### Hardware Examples (`test_examples/hardware/`)
 - `register_test.sc` - Register variable access
 - `volatile_test.sc` - Volatile variables
 - `gpio_blink.sc` - GPIO LED blink example
@@ -63,21 +63,21 @@ Example programs are organized in the `examples/` directory by category:
 - `bit_manipulation.sc` - Bit manipulation functions
 - Header files: `gpio.h`, `uart.h`, `timer.h`, `hardware.h`
 
-### Operator Examples (`examples/operators/`)
+### Operator Examples (`test_examples/operators/`)
 - `logical_operators.sc` - Logical operators tests
 - `relational_operators.sc` - Relational operators tests
 - `operator_precedence.sc` - Operator precedence testing
 - `prefix_vs_postfix.sc` - Prefix vs postfix increment/decrement
 - `increment_test.sc` - Increment/decrement operators
 
-### Include Examples (`examples/includes/`)
+### Include Examples (`test_examples/includes/`)
 - `include_example.sc` - Basic include directive
 - `nested_include.sc` - Nested includes
 - `circular_a.sc`, `circular_b.sc` - Circular include tests
 - `utils.sc` - Utility functions library
 - `math_ops.sc` - Math operations library
 
-### Advanced Examples (`examples/advanced/`)
+### Advanced Examples (`test_examples/advanced/`)
 - `fibonacci.sc` - Fibonacci sequence
 - `recursion.sc` - Recursive functions
 - `gcd.sc` - Greatest Common Divisor
@@ -87,7 +87,7 @@ Example programs are organized in the `examples/` directory by category:
 - `for_increment.sc` - For loop with increment
 - `for_decrement.sc` - For loop with decrement
 
-See `examples/README.md` for detailed descriptions.
+See `test_examples/README.md` for detailed descriptions.
 
 ## Compilation
 
@@ -104,10 +104,10 @@ Options:
 Examples:
 ```bash
 # Compile to assembly and binary
-python compile.py examples/basic/sum_range.sc
+python compile.py test_examples/basic/sum_range.sc
 
 # Compile and run
-python compile.py examples/basic/sum_range.sc --run
+python compile.py test_examples/basic/sum_range.sc --run
 ```
 
 This generates:
@@ -134,17 +134,15 @@ aiproj/
 │
 ├── README.md               # This file
 │
-├── examples/               # Example programs
+├── test_examples/          # Test example programs
 │   ├── basic/             # Basic programming examples
 │   │   └── hello_world/   # Hello World example
 │   ├── hardware/          # Hardware/MCU examples
 │   ├── operators/         # Operator testing examples
 │   ├── includes/          # Include directive examples
-│   └── advanced/          # Advanced programming examples
-│
-├── user_examples/          # User example programs
-│   ├── simple_return/     # Simple return example
+│   ├── advanced/          # Advanced programming examples
 │   ├── complex_example/   # Complex example with functions
+│   ├── simple_return/     # Simple return example
 │   └── test_example/      # Test example
 │
 ├── self_tests/            # Unit tests

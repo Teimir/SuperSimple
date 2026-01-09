@@ -214,8 +214,8 @@ def main():
         print("  --run    After compilation, run the binary using interpreter_x64.exe")
         print("")
         print("Examples:")
-        print("  python compile.py examples/basic/sum_range.sc")
-        print("  python compile.py examples/basic/sum_range.sc --run")
+        print("  python compile.py test_examples/basic/sum_range.sc")
+        print("  python compile.py test_examples/basic/sum_range.sc --run")
         sys.exit(1)
     
     source_file = sys.argv[1]

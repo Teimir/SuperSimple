@@ -1,6 +1,15 @@
 """
 Code Generator for Simple C-Style Language
 Generates FASM assembly code from AST.
+
+This module converts an Abstract Syntax Tree (AST) into FASM assembly code
+that can be compiled using the FASM assembler. It handles:
+- Function definitions and calls
+- Variable declarations and assignments
+- Control flow (if, while, for)
+- Arithmetic and logical operations
+- Array and pointer operations
+- Hardware function calls (UART, GPIO)
 """
 
 import os
@@ -11,12 +20,30 @@ from parser import (
     VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
     Block, FunctionCallStmt, Increment, Decrement,
     ArrayDecl, ArrayAccess, PointerDecl, AddressOf, Dereference,
-    ArrayAssignment, PointerAssignment
+    ArrayAssignment, PointerAssignment, BreakStmt, ContinueStmt
 )
 
 
+class LoopContext:
+    """Context for a loop (while or for) to support break/continue."""
+    def __init__(self, start_label: str, end_label: str, loop_type: str, increment_label: Optional[str] = None):
+        self.start_label = start_label
+        self.end_label = end_label
+        self.loop_type = loop_type  # "while" or "for"
+        self.increment_label = increment_label  # Only for for loops
+
+
 class RegisterAllocator:
-    """Simple register allocator using fixed register allocation."""
+    """
+    Simple register allocator using fixed register allocation.
+    
+    Register allocation strategy:
+    - r0: Reserved for function return value
+    - r1-r10: Temporary registers (for expression evaluation)
+    - r11-r25: Local variables
+    - r26-r30: Function parameters
+    - r31: Instruction pointer (not allocatable)
+    """
     
     def __init__(self):
         # r0-r30 are available for variables (r31 is instruction pointer)
@@ -70,6 +97,9 @@ class CodeGenerator:
         self.function_labels: Dict[str, str] = {}
         self.current_function: Optional[str] = None
         self._has_explicit_return = False  # Track if current function has explicit return
+        
+        # Loop context stack for break/continue support
+        self.loop_stack: List[LoopContext] = []
         
         # Memory management
         self.array_addresses: Dict[str, int] = {}  # array name -> base address (stack offset or label)
@@ -326,6 +356,10 @@ class CodeGenerator:
             self.generate_increment(stmt)
         elif isinstance(stmt, Decrement):
             self.generate_decrement(stmt)
+        elif isinstance(stmt, BreakStmt):
+            self.generate_break(stmt)
+        elif isinstance(stmt, ContinueStmt):
+            self.generate_continue(stmt)
         else:
             raise RuntimeError(f"Unknown statement type: {type(stmt)}")
     
@@ -466,21 +500,151 @@ class CodeGenerator:
             # Three-operand instruction: result = left op right
             self.emit(f"{op_map[op.op]} {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
         elif op.op == '*':
-            # Multiplication: use repeated addition (simplified)
-            # For proper implementation, would need multiplication instruction
-            temp = self.reg_allocator.get_temp_register()
+            # Multiplication: use repeated addition
+            # Copy operands to temporary registers to avoid modifying originals
+            left_temp = self.reg_allocator.get_temp_register()
+            right_temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(left_temp)}, {self.get_register_name(left_reg)}")
+            self.emit(f"mov {self.get_register_name(right_temp)}, {self.get_register_name(right_reg)}")
+            
+            # result = 0
             self.emit(f"mov {self.get_register_name(result_reg)}, 0")
             loop_label = self.generate_label("mul_loop")
+            end_label = self.generate_label("mul_end")
+            
             self.emit_label(loop_label)
-            # Simplified: just add (proper impl would need loop)
-            self.emit(f"add {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
-            self.reg_allocator.free_temp(temp)
+            # Check if right_temp == 0, if so exit
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            self.emit(f"cmovz r:31, {self.get_register_name(right_temp)}, {end_label} addr")
+            
+            # Add left_temp to result
+            self.emit(f"add {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(left_temp)}")
+            # Decrement right_temp
+            one_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+            self.emit(f"sub {self.get_register_name(right_temp)}, {self.get_register_name(right_temp)}, {self.get_register_name(one_reg)}")
+            
+            # Jump back to loop
+            self.emit(f"mov r:31, {loop_label} addr")
+            self.emit_label(end_label)
+            
+            self.reg_allocator.free_temp(left_temp)
+            self.reg_allocator.free_temp(right_temp)
+            self.reg_allocator.free_temp(zero_reg)
+            self.reg_allocator.free_temp(one_reg)
         elif op.op == '/':
-            # Division: would need division instruction (not in ISA)
-            raise RuntimeError("Division not yet supported in code generation")
+            # Division: use repeated subtraction
+            # Copy operands to temporary registers to avoid modifying originals
+            left_temp = self.reg_allocator.get_temp_register()
+            right_temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(left_temp)}, {self.get_register_name(left_reg)}")
+            self.emit(f"mov {self.get_register_name(right_temp)}, {self.get_register_name(right_reg)}")
+            
+            # result = 0
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+            loop_label = self.generate_label("div_loop")
+            end_label = self.generate_label("div_end")
+            
+            # Check for division by zero
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            error_label = self.generate_label("div_error")
+            self.emit(f"cmovz r:31, {self.get_register_name(right_temp)}, {error_label} addr")
+            
+            self.emit_label(loop_label)
+            # Check if left_temp < right_temp, if so exit
+            # cmpb returns -1 if left < right, 0 if left >= right
+            temp_cmp = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpb {self.get_register_name(temp_cmp)}, {self.get_register_name(left_temp)}, {self.get_register_name(right_temp)}")
+            # If temp_cmp != 0 (i.e., == -1, meaning left < right), jump to end
+            zero_reg2 = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg2)}, 0")
+            self.emit(f"cmovnz r:31, {self.get_register_name(temp_cmp)}, {end_label} addr")
+            
+            # Subtract right_temp from left_temp
+            self.emit(f"sub {self.get_register_name(left_temp)}, {self.get_register_name(left_temp)}, {self.get_register_name(right_temp)}")
+            # Increment result
+            one_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+            self.emit(f"add {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(one_reg)}")
+            
+            # Jump back to loop
+            self.emit(f"mov r:31, {loop_label} addr")
+            self.emit_label(end_label)
+            
+            # Jump over error label to avoid executing it
+            skip_error_label = self.generate_label("div_skip_error")
+            self.emit(f"mov r:31, {skip_error_label} addr")
+            
+            # Error label (division by zero)
+            self.emit_label(error_label)
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+            
+            self.emit_label(skip_error_label)
+            
+            self.reg_allocator.free_temp(zero_reg2)
+            
+            self.reg_allocator.free_temp(left_temp)
+            self.reg_allocator.free_temp(right_temp)
+            self.reg_allocator.free_temp(zero_reg)
+            self.reg_allocator.free_temp(temp_cmp)
+            self.reg_allocator.free_temp(one_reg)
+            self.reg_allocator.free_temp(zero_reg2)
         elif op.op == '%':
-            # Modulo: would need modulo instruction
-            raise RuntimeError("Modulo not yet supported in code generation")
+            # Modulo: use repeated subtraction, return remainder
+            # Copy operands to temporary registers to avoid modifying originals
+            remainder_reg = self.reg_allocator.get_temp_register()
+            right_temp = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(remainder_reg)}, {self.get_register_name(left_reg)}")
+            self.emit(f"mov {self.get_register_name(right_temp)}, {self.get_register_name(right_reg)}")
+            
+            loop_label = self.generate_label("mod_loop")
+            end_label = self.generate_label("mod_end")
+            
+            # Check for modulo by zero
+            zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            error_label = self.generate_label("mod_error")
+            self.emit(f"cmovz r:31, {self.get_register_name(right_temp)}, {error_label} addr")
+            
+            self.emit_label(loop_label)
+            # Check if remainder_reg < right_temp, if so exit
+            # cmpb returns -1 if remainder < right, 0 if remainder >= right
+            temp_cmp = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpb {self.get_register_name(temp_cmp)}, {self.get_register_name(remainder_reg)}, {self.get_register_name(right_temp)}")
+            # If temp_cmp != 0 (i.e., == -1, meaning remainder < right), jump to end
+            zero_reg2 = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg2)}, 0")
+            self.emit(f"cmovnz r:31, {self.get_register_name(temp_cmp)}, {end_label} addr")
+            
+            # Subtract right_temp from remainder_reg
+            self.emit(f"sub {self.get_register_name(remainder_reg)}, {self.get_register_name(remainder_reg)}, {self.get_register_name(right_temp)}")
+            
+            # Jump back to loop
+            self.emit(f"mov r:31, {loop_label} addr")
+            self.emit_label(end_label)
+            
+            # Move remainder to result
+            self.emit(f"mov {self.get_register_name(result_reg)}, {self.get_register_name(remainder_reg)}")
+            
+            # Jump over error label to avoid executing it
+            skip_error_label = self.generate_label("mod_skip_error")
+            self.emit(f"mov r:31, {skip_error_label} addr")
+            
+            # Error label (modulo by zero)
+            self.emit_label(error_label)
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+            
+            self.emit_label(skip_error_label)
+            
+            self.reg_allocator.free_temp(zero_reg2)
+            
+            self.reg_allocator.free_temp(remainder_reg)
+            self.reg_allocator.free_temp(right_temp)
+            self.reg_allocator.free_temp(zero_reg)
+            self.reg_allocator.free_temp(temp_cmp)
+            self.reg_allocator.free_temp(zero_reg2)
         elif op.op == '==':
             # Equality comparison: use cmpe
             # Check if result_reg conflicts with left_reg or right_reg
@@ -635,63 +799,52 @@ class CodeGenerator:
                 self.reg_allocator.free_temp(zero_reg)
         elif op.op == '&&':
             # Logical AND: both non-zero
-            # left_reg and right_reg already contain boolean values (0 or 1)
-            # We want result = 1 if (left_reg != 0) && (right_reg != 0), else 0
-            # Make sure we don't conflict with left_reg, right_reg, or result_reg
+            # result = 1 if (left != 0) && (right != 0), else 0
+            # Simple approach: if left == 0, result = 0; else if right == 0, result = 0; else result = 1
             zero_reg = self.reg_allocator.get_temp_register()
             while zero_reg == left_reg or zero_reg == right_reg or zero_reg == result_reg:
                 self.reg_allocator.free_temp(zero_reg)
                 zero_reg = self.reg_allocator.get_temp_register()
+            
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
+            
+            # Check if left == 0, if so jump to end (result = 0)
+            end_label = self.generate_label("and_end")
+            temp_cmp = self.reg_allocator.get_temp_register()
+            while temp_cmp == left_reg or temp_cmp == right_reg or temp_cmp == result_reg or temp_cmp == zero_reg:
+                self.reg_allocator.free_temp(temp_cmp)
+                temp_cmp = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpe {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(zero_reg)}")
+            # temp_cmp is -1 if left == 0, 0 if left != 0
+            # If left == 0 (temp_cmp == -1), jump to end using cmovnz (checks for -1)
+            self.emit(f"cmovnz r:31, {self.get_register_name(temp_cmp)}, {end_label} addr")
+            
+            # Check if right == 0, if so jump to end (result = 0)
+            temp_cmp2 = self.reg_allocator.get_temp_register()
+            while temp_cmp2 == left_reg or temp_cmp2 == right_reg or temp_cmp2 == result_reg or temp_cmp2 == zero_reg or temp_cmp2 == temp_cmp:
+                self.reg_allocator.free_temp(temp_cmp2)
+                temp_cmp2 = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpe {self.get_register_name(temp_cmp2)}, {self.get_register_name(right_reg)}, {self.get_register_name(zero_reg)}")
+            # If right == 0 (temp_cmp2 == -1), jump to end using cmovnz (checks for -1)
+            self.emit(f"cmovnz r:31, {self.get_register_name(temp_cmp2)}, {end_label} addr")
+            
+            # Both are non-zero, set result to 1
             one_reg = self.reg_allocator.get_temp_register()
-            while one_reg == left_reg or one_reg == right_reg or one_reg == result_reg or one_reg == zero_reg:
+            while one_reg == left_reg or one_reg == right_reg or one_reg == result_reg or one_reg == zero_reg or one_reg == temp_cmp or one_reg == temp_cmp2:
                 self.reg_allocator.free_temp(one_reg)
                 one_reg = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
             self.emit(f"mov {self.get_register_name(one_reg)}, 1")
-            # Check if left_reg != 0: left_temp is -1 if left == 0, 0 if left != 0
-            # Make sure left_temp doesn't conflict with left_reg, right_reg, result_reg, zero_reg, or one_reg
-            left_temp = self.reg_allocator.get_temp_register()
-            while left_temp == left_reg or left_temp == right_reg or left_temp == result_reg or left_temp == zero_reg or left_temp == one_reg:
-                self.reg_allocator.free_temp(left_temp)
-                left_temp = self.reg_allocator.get_temp_register()
-            self.emit(f"cmpe {self.get_register_name(left_temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(zero_reg)}")
-            # Check if right_reg != 0: right_temp is -1 if right == 0, 0 if right != 0
-            # Make sure right_temp doesn't conflict with any other registers
-            right_temp = self.reg_allocator.get_temp_register()
-            while right_temp == right_reg or right_temp == left_reg or right_temp == result_reg or right_temp == left_temp or right_temp == zero_reg or right_temp == one_reg:
-                self.reg_allocator.free_temp(right_temp)
-                right_temp = self.reg_allocator.get_temp_register()
-            self.emit(f"cmpe {self.get_register_name(right_temp)}, {self.get_register_name(right_reg)}, {self.get_register_name(zero_reg)}")
-            # Result is 1 if both are non-zero (both != 0), else 0
-            # We want result = 1 if (left_temp == 0) && (right_temp == 0), else 0
-            # left_temp == 0 means left != 0 (left is true)
-            # right_temp == 0 means right != 0 (right is true)
-            # So result = 1 if (left_temp == 0) && (right_temp == 0)
-            # Use a separate temp register for intermediate comparisons to avoid conflicts
-            check_left = self.reg_allocator.get_temp_register()
-            while check_left == left_reg or check_left == right_reg or check_left == result_reg or check_left == left_temp or check_left == right_temp or check_left == zero_reg or check_left == one_reg:
-                self.reg_allocator.free_temp(check_left)
-                check_left = self.reg_allocator.get_temp_register()
-            check_right = self.reg_allocator.get_temp_register()
-            while check_right == left_reg or check_right == right_reg or check_right == result_reg or check_right == left_temp or check_right == right_temp or check_right == zero_reg or check_right == one_reg or check_right == check_left:
-                self.reg_allocator.free_temp(check_right)
-                check_right = self.reg_allocator.get_temp_register()
-            # Check if left_temp == 0 (left != 0)
-            self.emit(f"cmpe {self.get_register_name(check_left)}, {self.get_register_name(left_temp)}, {self.get_register_name(zero_reg)}")
-            # Check if right_temp == 0 (right != 0)
-            self.emit(f"cmpe {self.get_register_name(check_right)}, {self.get_register_name(right_temp)}, {self.get_register_name(zero_reg)}")
-            # Result is 1 if both checks are 0 (both are true), else 0
-            self.emit(f"mov {self.get_register_name(result_reg)}, 0")
-            # If check_left == 0 (left_temp == 0, meaning left is true), set result to 1
-            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(check_left)}, {self.get_register_name(one_reg)}")
-            # If check_right != 0 (right_temp != 0, meaning right is false), set result to 0
-            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(check_right)}, {self.get_register_name(zero_reg)}")
-            self.reg_allocator.free_temp(check_left)
-            self.reg_allocator.free_temp(check_right)
-            self.reg_allocator.free_temp(left_temp)
-            self.reg_allocator.free_temp(right_temp)
+            self.emit(f"mov {self.get_register_name(result_reg)}, 1")
+            # Jump to end to avoid falling through
+            self.emit(f"mov r:31, {end_label} addr")
+            
+            self.emit_label(end_label)
+            
             self.reg_allocator.free_temp(zero_reg)
             self.reg_allocator.free_temp(one_reg)
+            self.reg_allocator.free_temp(temp_cmp)
+            self.reg_allocator.free_temp(temp_cmp2)
         elif op.op == '||':
             # Logical OR: either non-zero
             zero_reg = self.reg_allocator.get_temp_register()
@@ -916,36 +1069,44 @@ class CodeGenerator:
         start_label = self.generate_label("while_start")
         end_label = self.generate_label("while_end")
         
-        self.emit_label(start_label)
+        # Create loop context and push to stack
+        loop_context = LoopContext(start_label, end_label, "while")
+        self.loop_stack.append(loop_context)
         
-        # Evaluate condition
-        condition_reg = self.generate_expression(stmt.condition)
-        # Use a fixed register (r:10) for zero to avoid conflicts with condition_reg
-        # r:10 is rarely used and should be safe
-        zero_reg = 10
-        # But if condition_reg is r:10, we need to use a different register
-        if condition_reg == zero_reg:
-            zero_reg = self.reg_allocator.get_temp_register()
-            while zero_reg == condition_reg:
-                self.reg_allocator.free_temp(zero_reg)
+        try:
+            self.emit_label(start_label)
+            
+            # Evaluate condition
+            condition_reg = self.generate_expression(stmt.condition)
+            # Use a fixed register (r:10) for zero to avoid conflicts with condition_reg
+            # r:10 is rarely used and should be safe
+            zero_reg = 10
+            # But if condition_reg is r:10, we need to use a different register
+            if condition_reg == zero_reg:
                 zero_reg = self.reg_allocator.get_temp_register()
-        self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
-        
-        # Conditional jump: if condition == 0 (false), exit loop
-        # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)
-        self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
-        
-        if condition_reg != 10:
-            # Only free if we allocated it
-            self.reg_allocator.free_temp(condition_reg)
-        
-        # Loop body
-        self.generate_statement(stmt.body)
-        
-        # Unconditional jump back to start
-        self.emit(f"mov r:31, {start_label} addr")
-        
-        self.emit_label(end_label)
+                while zero_reg == condition_reg:
+                    self.reg_allocator.free_temp(zero_reg)
+                    zero_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+            
+            # Conditional jump: if condition == 0 (false), exit loop
+            # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
+            
+            if condition_reg != 10:
+                # Only free if we allocated it
+                self.reg_allocator.free_temp(condition_reg)
+            
+            # Loop body
+            self.generate_statement(stmt.body)
+            
+            # Unconditional jump back to start
+            self.emit(f"mov r:31, {start_label} addr")
+            
+            self.emit_label(end_label)
+        finally:
+            # Remove loop context from stack
+            self.loop_stack.pop()
     
     def generate_for(self, stmt: ForStmt):
         """Generate code for for loop."""
@@ -954,39 +1115,70 @@ class CodeGenerator:
             self.generate_statement(stmt.init)
         
         start_label = self.generate_label("for_start")
+        increment_label = self.generate_label("for_increment") if stmt.increment else None
         end_label = self.generate_label("for_end")
         
-        self.emit_label(start_label)
+        # Create loop context and push to stack
+        loop_context = LoopContext(start_label, end_label, "for", increment_label)
+        self.loop_stack.append(loop_context)
         
-        # Condition check
-        if stmt.condition:
-            condition_reg = self.generate_expression(stmt.condition)
-            zero_reg = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+        try:
+            self.emit_label(start_label)
             
-            # Conditional jump: if condition == 0 (false), exit loop
-            # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)
-            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
+            # Condition check
+            if stmt.condition:
+                condition_reg = self.generate_expression(stmt.condition)
+                zero_reg = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+                
+                # Conditional jump: if condition == 0 (false), exit loop
+                # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)
+                self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
+                
+                self.reg_allocator.free_temp(zero_reg)
+                self.reg_allocator.free_temp(condition_reg)
             
-            self.reg_allocator.free_temp(zero_reg)
-            self.reg_allocator.free_temp(condition_reg)
-        
-        # Loop body
-        self.generate_statement(stmt.body)
-        
-        # Increment
-        if stmt.increment:
-            self.generate_statement(stmt.increment)
-        
-        # Unconditional jump back to start
-        self.emit(f"mov r:31, {start_label} addr")
-        
-        self.emit_label(end_label)
+            # Loop body
+            self.generate_statement(stmt.body)
+            
+            # Increment section (with label for continue)
+            if stmt.increment:
+                self.emit_label(increment_label)
+                self.generate_statement(stmt.increment)
+            
+            # Unconditional jump back to start
+            self.emit(f"mov r:31, {start_label} addr")
+            
+            self.emit_label(end_label)
+        finally:
+            # Remove loop context from stack
+            self.loop_stack.pop()
     
     def generate_block(self, block: Block):
         """Generate code for block."""
         for stmt in block.statements:
             self.generate_statement(stmt)
+    
+    def generate_break(self, stmt: BreakStmt):
+        """Generate code for break statement."""
+        if not self.loop_stack:
+            raise RuntimeError("break statement outside of loop")
+        
+        loop_context = self.loop_stack[-1]
+        # Jump to end of loop
+        self.emit(f"mov r:31, {loop_context.end_label} addr")
+    
+    def generate_continue(self, stmt: ContinueStmt):
+        """Generate code for continue statement."""
+        if not self.loop_stack:
+            raise RuntimeError("continue statement outside of loop")
+        
+        loop_context = self.loop_stack[-1]
+        # For for loops, jump to increment section; for while loops, jump to start
+        if loop_context.loop_type == "for" and loop_context.increment_label:
+            self.emit(f"mov r:31, {loop_context.increment_label} addr")
+        else:
+            self.emit(f"mov r:31, {loop_context.start_label} addr")
     
     def generate_array_decl(self, decl: ArrayDecl):
         """Generate code for array declaration."""

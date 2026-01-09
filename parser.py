@@ -209,6 +209,18 @@ class Decrement(Statement):
         return f"Decrement({self.name}, {prefix_str})"
 
 
+class BreakStmt(Statement):
+    """Break statement (break;)."""
+    def __repr__(self):
+        return "BreakStmt()"
+
+
+class ContinueStmt(Statement):
+    """Continue statement (continue;)."""
+    def __repr__(self):
+        return "ContinueStmt()"
+
+
 class ArrayDecl(Statement):
     """Array declaration: uint32 arr[10]; or uint32 arr[5] = {1, 2, 3, 4, 5};"""
     def __init__(self, name: str, size: Expression, initializer: Optional[List[Expression]] = None,
@@ -469,6 +481,14 @@ class Parser:
         if token.type == TokenType.FOR:
             return self.parse_for()
         
+        # Break statement
+        if token.type == TokenType.BREAK:
+            return self.parse_break()
+        
+        # Continue statement
+        if token.type == TokenType.CONTINUE:
+            return self.parse_continue()
+        
         # Block
         if token.type == TokenType.LBRACE:
             return self.parse_block()
@@ -669,6 +689,18 @@ class Parser:
         self.expect(TokenType.SEMICOLON)
         return Return(value)
     
+    def parse_break(self) -> BreakStmt:
+        """Parse a break statement."""
+        self.expect(TokenType.BREAK)
+        self.expect(TokenType.SEMICOLON)
+        return BreakStmt()
+    
+    def parse_continue(self) -> ContinueStmt:
+        """Parse a continue statement."""
+        self.expect(TokenType.CONTINUE)
+        self.expect(TokenType.SEMICOLON)
+        return ContinueStmt()
+    
     def parse_if(self) -> IfStmt:
         """Parse an if statement."""
         self.expect(TokenType.IF)
@@ -831,10 +863,6 @@ class Parser:
         left = self.parse_additive()
         while self.current_token() and self.current_token().type in [TokenType.SHIFT_LEFT, TokenType.SHIFT_RIGHT]:
             op = self.advance()
-            # #region agent log
-            with open('e:\\aiproj\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
-                f.write('{"id":"log_parser_shift","timestamp":' + str(int(__import__('time').time() * 1000)) + ',"location":"parser.py:608","message":"Parsing shift operator","data":{"operator":"' + op.value + '","tokenType":"' + op.type.name + '"},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"C"}\n')
-            # #endregion agent log
             right = self.parse_additive()
             left = BinaryOp(op.value, left, right)
         return left

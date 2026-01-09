@@ -80,7 +80,7 @@ python main.py <source_file>
 
 Пример:
 \begin{lstlisting}[language=bash]
-python main.py examples/factorial.sc
+python main.py test_examples/basic/sum_range.sc
 \end{lstlisting}
 
 \subsection{Компиляция}
@@ -99,10 +99,10 @@ python compile.py <source_file> [output_file] [--run]
 Примеры:
 \begin{lstlisting}[language=bash]
 # Компиляция в ассемблер и бинарный файл
-python compile.py examples/basic/sum_range.sc
+python compile.py test_examples/basic/sum_range.sc
 
 # Компиляция и запуск
-python compile.py examples/basic/sum_range.sc --run
+python compile.py test_examples/basic/sum_range.sc --run
 \end{lstlisting}
 
 Это генерирует:
@@ -1119,18 +1119,17 @@ aiproj/
 │       └── PROJECT_STRUCTURE.md  # Этот файл
 │
 ├── Примеры
-│   ├── examples/
-│   │   ├── basic/           # Базовые примеры программирования
-│   │   │   └── hello_world/ # Пример Hello World
-│   │   ├── hardware/        # Примеры работы с железом/MCU
-│   │   ├── operators/       # Примеры тестирования операторов
-│   │   ├── includes/        # Примеры директив включения
-│   │   ├── advanced/        # Продвинутые примеры программирования
-│   │   └── README.md        # Документация примеров
-│   └── user_examples/       # Примеры пользовательских программ
-│       ├── simple_return/   # Простой пример возврата
+│   └── test_examples/       # Тестовые примеры программ
+│       ├── basic/           # Базовые примеры программирования
+│       │   └── hello_world/ # Пример Hello World
+│       ├── hardware/        # Примеры работы с железом/MCU
+│       ├── operators/       # Примеры тестирования операторов
+│       ├── includes/        # Примеры директив включения
+│       ├── advanced/        # Продвинутые примеры программирования
 │       ├── complex_example/ # Сложный пример с функциями
-│       └── test_example/    # Тестовый пример
+│       ├── simple_return/   # Простой пример возврата
+│       ├── test_example/    # Тестовый пример
+│       └── README.md        # Документация примеров
 │
 ├── Тесты
 │   └── self_tests/          # Директория модульных тестов

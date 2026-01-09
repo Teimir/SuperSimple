@@ -27,12 +27,22 @@ from parser import (
     VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
     Block, FunctionCallStmt, Increment, Decrement,
     ArrayDecl, ArrayAccess, PointerDecl, AddressOf, Dereference,
-    ArrayAssignment, PointerAssignment
+    ArrayAssignment, PointerAssignment, BreakStmt, ContinueStmt
 )
 
 
 class RuntimeError(Exception):
     """Runtime error during program execution."""
+    pass
+
+
+class BreakException(Exception):
+    """Exception raised by break statement to exit loop."""
+    pass
+
+
+class ContinueException(Exception):
+    """Exception raised by continue statement to skip to next iteration."""
     pass
 
 
@@ -316,6 +326,10 @@ class Interpreter:
             self.execute_block(stmt, env)
         elif isinstance(stmt, FunctionCallStmt):
             self.execute_function_call(stmt.call, env)
+        elif isinstance(stmt, BreakStmt):
+            self.execute_break(stmt, env)
+        elif isinstance(stmt, ContinueStmt):
+            self.execute_continue(stmt, env)
         else:
             raise RuntimeError(f"Unknown statement type: {type(stmt)}")
     
@@ -495,7 +509,12 @@ class Interpreter:
             condition = self.evaluate_expression(while_stmt.condition, env)
             if condition == 0:  # Zero is falsy
                 break
-            self.execute_statement(while_stmt.body, env)
+            try:
+                self.execute_statement(while_stmt.body, env)
+            except BreakException:
+                break
+            except ContinueException:
+                continue
     
     def execute_for(self, for_stmt: ForStmt, env: Environment):
         """Execute a for loop."""
@@ -517,11 +536,27 @@ class Interpreter:
                     break
             
             # Execute body
-            self.execute_statement(for_stmt.body, for_env)
+            try:
+                self.execute_statement(for_stmt.body, for_env)
+            except BreakException:
+                break
+            except ContinueException:
+                # For continue, skip to increment
+                if for_stmt.increment:
+                    self.execute_statement(for_stmt.increment, for_env)
+                continue
             
             # Increment
             if for_stmt.increment:
                 self.execute_statement(for_stmt.increment, for_env)
+    
+    def execute_break(self, stmt: BreakStmt, env: Environment):
+        """Execute a break statement."""
+        raise BreakException()
+    
+    def execute_continue(self, stmt: ContinueStmt, env: Environment):
+        """Execute a continue statement."""
+        raise ContinueException()
     
     def execute_function_call(self, call: FunctionCall, env: Environment) -> int:
         """Execute a function call and return its value."""

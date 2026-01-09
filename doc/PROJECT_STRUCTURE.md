@@ -26,18 +26,17 @@ aiproj/
 │       └── PROJECT_STRUCTURE.md  # This file
 │
 ├── Examples
-│   ├── examples/
-│   │   ├── basic/           # Basic programming examples
-│   │   │   └── hello_world/ # Hello World example
-│   │   ├── hardware/        # Hardware/MCU examples
-│   │   ├── operators/       # Operator testing examples
-│   │   ├── includes/        # Include directive examples
-│   │   ├── advanced/        # Advanced programming examples
-│   │   └── README.md        # Examples documentation
-│   └── user_examples/       # User example programs
-│       ├── simple_return/   # Simple return example
+│   └── test_examples/       # Test example programs
+│       ├── basic/           # Basic programming examples
+│       │   └── hello_world/ # Hello World example
+│       ├── hardware/        # Hardware/MCU examples
+│       ├── operators/       # Operator testing examples
+│       ├── includes/        # Include directive examples
+│       ├── advanced/        # Advanced programming examples
 │       ├── complex_example/ # Complex example with functions
-│       └── test_example/    # Test example
+│       ├── simple_return/   # Simple return example
+│       ├── test_example/    # Test example
+│       └── README.md        # Test examples documentation
 │
 ├── Tests
 │   └── self_tests/          # Unit tests directory
@@ -81,16 +80,15 @@ aiproj/
 
 ### Examples
 
-- **`examples/basic/`**: Simple programming examples
+- **`test_examples/basic/`**: Simple programming examples
   - **`hello_world/`**: Hello World example with UART output
-- **`examples/hardware/`**: MCU hardware interaction examples
-- **`examples/operators/`**: Operator testing and demonstration
-- **`examples/includes/`**: File inclusion examples
-- **`examples/advanced/`**: Complex programming patterns
-- **`user_examples/`**: User-contributed example programs
-  - **`simple_return/`**: Simple return example
-  - **`complex_example/`**: Complex example with functions
-  - **`test_example/`**: Test example
+- **`test_examples/hardware/`**: MCU hardware interaction examples
+- **`test_examples/operators/`**: Operator testing and demonstration
+- **`test_examples/includes/`**: File inclusion examples
+- **`test_examples/advanced/`**: Complex programming patterns
+- **`test_examples/complex_example/`**: Complex example with functions
+- **`test_examples/simple_return/`**: Simple return example
+- **`test_examples/test_example/`**: Test example
 
 ### Tests
 

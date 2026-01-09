@@ -62,7 +62,7 @@ python -m unittest test_preprocessor
 
 2. **Documentation**:
    - Update `LANGUAGE_SPEC.md` hardware section
-   - Add example in `examples/hardware/`
+   - Add example in `test_examples/hardware/`
 
 ### Adding a New Statement Type
 

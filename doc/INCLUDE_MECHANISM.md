@@ -274,11 +274,11 @@ result = interpreter.run()
 
 ## Примеры в проекте
 
-- `examples/includes/utils.sc` - библиотека утилит
-- `examples/includes/math_ops.sc` - математические операции
-- `examples/includes/nested_include.sc` - пример вложенных включений
-- `examples/hardware/hardware.h` - константы для железа
-- `examples/hardware/gpio.h` - GPIO константы
+- `test_examples/includes/utils.sc` - библиотека утилит
+- `test_examples/includes/math_ops.sc` - математические операции
+- `test_examples/includes/nested_include.sc` - пример вложенных включений
+- `test_examples/hardware/hardware.h` - константы для железа
+- `test_examples/hardware/gpio.h` - GPIO константы
 
 ## Заключение
 

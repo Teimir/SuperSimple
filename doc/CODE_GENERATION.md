@@ -303,17 +303,17 @@ Options:
 Examples:
 ```bash
 # Compile to assembly and binary
-python compile.py examples/basic/sum_range.sc
+python compile.py test_examples/basic/sum_range.sc
 
 # Compile and run
-python compile.py examples/basic/sum_range.sc --run
+python compile.py test_examples/basic/sum_range.sc --run
 ```
 
 ### Manual Compilation
 
 If you want to compile manually:
 ```bash
-int_pack/FASM.EXE examples/basic/sum_range.asm
+int_pack/FASM.EXE test_examples/basic/sum_range.asm
 ```
 
 This will generate `.bin` and `.mif` files in the same directory as the `.asm` file.
@@ -322,7 +322,7 @@ This will generate `.bin` and `.mif` files in the same directory as the `.asm` f
 
 Run a compiled binary:
 ```bash
-int_pack/interpreter_x64.exe examples/basic/sum_range.bin
+int_pack/interpreter_x64.exe test_examples/basic/sum_range.bin
 ```
 
 The interpreter executes the binary and prints register states at the end.

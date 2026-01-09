@@ -250,27 +250,47 @@ class CodeGenerator:
         self.emit_label(self.function_labels[func.name])
         self.emit_comment(f"Function: {func.name}")
         
-        # Save link register (r:30) to stack if this is not main
-        # Main doesn't need to save because it's the entry point
+        # Function entry: return address and parameters are on stack (pushed by caller)
+        # r:30 is the stack pointer (initialized to 4096 by entry macro)
+        # Stack layout: [return_addr][param0][param1]...[paramN] (r:30 points to return_addr)
+        # We need to account for return address + parameters in stack offset tracking
         if func.name != 'main':
-            # Save return address from r:30 to stack before modifying r:30
-            # Push return address: sub r:30, r:30, 1; lds [r:30], r:30 (but r:30 contains address, so save it first)
-            temp_reg = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(temp_reg)}, r:30")  # Save return address
-            self.emit(f"sub r:30, r:30, 1")  # Allocate space for return address
-            self.emit(f"lds [r:30], {self.get_register_name(temp_reg)}")  # Store return address
-            self.reg_allocator.free_temp(temp_reg)
-            self.stack_offset += 1  # Account for saved return address
+            self.stack_offset += 1  # Account for return address on stack
+            self.stack_offset += len(func.params)  # Account for parameters on stack
         
-        # Allocate registers for parameters
+        # Load parameters from stack
+        # Parameters are on stack in order: first parameter on top (after return address)
+        # Stack layout: [return_addr][param0][param1]...[paramN] (r:30 points to return_addr)
+        # We need to pop return address first, then load parameters
         param_regs = []
+        temp_reg = self.reg_allocator.get_temp_register()
+        
+        # First, pop return address (it's already accounted for in stack_offset)
+        # Parameters start at [r:30+1], [r:30+2], etc.
         for i, param in enumerate(func.params):
-            # Use r26-r30 for parameters
-            param_reg = 26 + i
-            if param_reg > 30:
-                raise RuntimeError(f"Code generation error: Too many parameters in function '{func.name}' (maximum 5 parameters supported)")
-            self.reg_allocator.allocated[param] = param_reg
+            # Allocate a register for the parameter
+            param_reg = self.reg_allocator.allocate(param)
             param_regs.append(param_reg)
+            
+            # Load parameter from stack: [r:30 + 1 + i]
+            # We need to calculate address: r:30 + 1 + i
+            addr_reg = self.reg_allocator.get_temp_register()
+            offset = 1 + i  # +1 for return address, +i for parameter index
+            self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+            if offset > 0:
+                offset_reg = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(offset_reg)}, {offset}")
+                self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(offset_reg)}")
+                self.reg_allocator.free_temp(offset_reg)
+            self.emit(f"lds {self.get_register_name(param_reg)}, [{self.get_register_name(addr_reg)}]")
+            self.reg_allocator.free_temp(addr_reg)
+            # #region agent log
+            import json
+            with open(r'e:\aiproj\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"location":"codegen.py:280","message":"Parameter loaded from stack","data":{"func":func.name,"param":param,"param_reg":param_reg,"stack_offset":offset},"timestamp":0,"sessionId":"debug-session","hypothesisId":"H3"}) + '\n')
+            # #endregion
+        
+        self.reg_allocator.free_temp(temp_reg)
         
         # Track if function has explicit return
         # We'll set this flag when we encounter a return statement
@@ -421,21 +441,35 @@ class CodeGenerator:
         # Evaluate expression
         value_reg = self.generate_expression(assign.value)
         
-        # Get target register
-        target_reg = self.reg_allocator.get_register(assign.name)
-        if target_reg is None:
-            if assign.name.startswith('r') and assign.name[1:].isdigit():
-                # Direct register access
-                target_reg = int(assign.name[1:])
-            else:
-                # Allocate new register
-                target_reg = self.reg_allocator.allocate(assign.name)
-        
-        # Move value to target
-        if value_reg != target_reg:
-            self.emit(f"mov {self.get_register_name(target_reg)}, {self.get_register_name(value_reg)}")
-        
-        self.reg_allocator.free_temp(value_reg)
+        # Check if this is a global variable
+        if assign.name in self.global_data_labels:
+            # Global variable - store to memory
+            label = self.global_data_labels[assign.name]
+            # Allocate address register, making sure it's different from value_reg
+            addr_reg = self.reg_allocator.get_temp_register()
+            while addr_reg == value_reg:
+                self.reg_allocator.free_temp(addr_reg)
+                addr_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(addr_reg)}, {label} addr")
+            self.emit(f"lds [{self.get_register_name(addr_reg)}], {self.get_register_name(value_reg)}")
+            self.reg_allocator.free_temp(addr_reg)
+            self.reg_allocator.free_temp(value_reg)
+        else:
+            # Local variable - store in register
+            target_reg = self.reg_allocator.get_register(assign.name)
+            if target_reg is None:
+                if assign.name.startswith('r') and assign.name[1:].isdigit():
+                    # Direct register access
+                    target_reg = int(assign.name[1:])
+                else:
+                    # Allocate new register
+                    target_reg = self.reg_allocator.allocate(assign.name)
+            
+            # Move value to target
+            if value_reg != target_reg:
+                self.emit(f"mov {self.get_register_name(target_reg)}, {self.get_register_name(value_reg)}")
+            
+            self.reg_allocator.free_temp(value_reg)
     
     def generate_expression(self, expr: Expression) -> int:
         """Generate code for expression and return register containing result."""
@@ -477,6 +511,18 @@ class CodeGenerator:
     
     def generate_identifier(self, ident: Identifier) -> int:
         """Generate code for identifier access."""
+        # Check if this is a global variable
+        if ident.name in self.global_data_labels:
+            # Global variable - load from memory
+            label = self.global_data_labels[ident.name]
+            result_reg = self.reg_allocator.get_temp_register()
+            addr_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(addr_reg)}, {label} addr")
+            self.emit(f"lds {self.get_register_name(result_reg)}, [{self.get_register_name(addr_reg)}]")
+            self.reg_allocator.free_temp(addr_reg)
+            return result_reg
+        
+        # Local variable - get from register
         reg = self.reg_allocator.get_register(ident.name)
         if reg is None:
             if ident.name.startswith('r') and ident.name[1:].isdigit():
@@ -485,7 +531,6 @@ class CodeGenerator:
                 raise RuntimeError(f"Code generation error: Undefined variable '{ident.name}' in function '{self.current_function}'")
         
         # If it's already in a register, return it
-        # Otherwise, we'd need to load from memory (not implemented)
         return reg
     
     def generate_binary_op(self, op: BinaryOp) -> int:
@@ -763,14 +808,16 @@ class CodeGenerator:
             self.reg_allocator.free_temp(one_reg)
             self.reg_allocator.free_temp(zero_reg)
         elif op.op == '>=':
-            # Greater than or equal: (a >= b) == !(a < b)
-            # Use cmpb to check if a < b, then invert
+            # Greater than or equal: (a >= b) == (a > b) || (a == b)
+            # Use cmpa to check if a > b: if true, result = 1; if false, check if a == b
             # Check if result_reg conflicts with left_reg or right_reg
             if result_reg == left_reg or result_reg == right_reg:
                 temp_cmp = self.reg_allocator.get_temp_register()
                 while temp_cmp == left_reg or temp_cmp == right_reg:
                     self.reg_allocator.free_temp(temp_cmp)
                     temp_cmp = self.reg_allocator.get_temp_register()
+                # For a >= b: use cmpb to check a < b, then invert
+                # cmpb returns -1 if a < b, 0 if a >= b
                 self.emit(f"cmpb {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
                 # temp_cmp is -1 if a < b, 0 if a >= b
                 # We want result_reg = 1 if a >= b, 0 if a < b
@@ -779,18 +826,16 @@ class CodeGenerator:
                 while one_reg == left_reg or one_reg == right_reg or one_reg == result_reg or one_reg == temp_cmp:
                     self.reg_allocator.free_temp(one_reg)
                     one_reg = self.reg_allocator.get_temp_register()
-                zero_reg = self.reg_allocator.get_temp_register()
-                while zero_reg == left_reg or zero_reg == right_reg or zero_reg == result_reg or zero_reg == temp_cmp or zero_reg == one_reg:
-                    self.reg_allocator.free_temp(zero_reg)
-                    zero_reg = self.reg_allocator.get_temp_register()
+                # Initialize result_reg to 0 first, then set to 1 if condition is true
+                self.emit(f"mov {self.get_register_name(result_reg)}, 0")
                 self.emit(f"mov {self.get_register_name(one_reg)}, 1")
-                self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+                # If temp_cmp == 0 (a >= b), set result_reg = 1
                 self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(one_reg)}")
-                self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(zero_reg)}")
                 self.reg_allocator.free_temp(temp_cmp)
                 self.reg_allocator.free_temp(one_reg)
-                self.reg_allocator.free_temp(zero_reg)
             else:
+                # For a >= b: use cmpb to check a < b, then invert
+                # cmpb returns -1 if a < b, 0 if a >= b
                 temp = self.reg_allocator.get_temp_register()
                 while temp == left_reg or temp == right_reg:
                     self.reg_allocator.free_temp(temp)
@@ -803,17 +848,13 @@ class CodeGenerator:
                 while one_reg == left_reg or one_reg == right_reg or one_reg == result_reg or one_reg == temp:
                     self.reg_allocator.free_temp(one_reg)
                     one_reg = self.reg_allocator.get_temp_register()
-                zero_reg = self.reg_allocator.get_temp_register()
-                while zero_reg == left_reg or zero_reg == right_reg or zero_reg == result_reg or zero_reg == temp or zero_reg == one_reg:
-                    self.reg_allocator.free_temp(zero_reg)
-                    zero_reg = self.reg_allocator.get_temp_register()
+                # Initialize result_reg to 0 first, then set to 1 if condition is true
+                self.emit(f"mov {self.get_register_name(result_reg)}, 0")
                 self.emit(f"mov {self.get_register_name(one_reg)}, 1")
-                self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+                # If temp == 0 (a >= b), set result_reg = 1
                 self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(one_reg)}")
-                self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(zero_reg)}")
                 self.reg_allocator.free_temp(temp)
                 self.reg_allocator.free_temp(one_reg)
-                self.reg_allocator.free_temp(zero_reg)
         elif op.op == '&&':
             # Logical AND: both non-zero
             # result = 1 if (left != 0) && (right != 0), else 0
@@ -935,27 +976,39 @@ class CodeGenerator:
         Note:
             Parameters are passed in registers r26-r30 (max 5 parameters).
             Return value is expected in r:0.
+            Return address is pushed onto stack (r:30 is stack pointer).
         """
         # Check if it's a built-in hardware function
         if call.name not in self.function_labels:
             return self.generate_hardware_function(call)
         
-        # Pass parameters (max 5 params in r26-r30)
-        for i, arg in enumerate(call.args):
-            if i >= 5:
-                raise RuntimeError(f"Too many arguments in function call: {call.name}")
+        # Pass parameters through stack (in reverse order: last parameter first)
+        # This way first parameter will be on top of stack
+        temp_reg = self.reg_allocator.get_temp_register()
+        for i in range(len(call.args) - 1, -1, -1):  # Reverse order
+            arg = call.args[i]
             arg_reg = self.generate_expression(arg)
-            param_reg = 26 + i
-            if arg_reg != param_reg:
-                self.emit(f"mov r:{param_reg}, {self.get_register_name(arg_reg)}")
+            # Push parameter onto stack
+            if arg_reg != temp_reg:
+                self.emit(f"mov {self.get_register_name(temp_reg)}, {self.get_register_name(arg_reg)}")
+            self.emit(f"sub r:30, r:30, 1")  # Decrement stack pointer
+            self.emit(f"lds [r:30], {self.get_register_name(temp_reg)}")  # Push parameter onto stack
             self.reg_allocator.free_temp(arg_reg)
+            # #region agent log
+            import json
+            with open(r'e:\aiproj\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"location":"codegen.py:975","message":"Parameter pushed to stack","data":{"param_index":i,"arg_reg":arg_reg,"arg_value":str(arg)},"timestamp":0,"sessionId":"debug-session","hypothesisId":"H2"}) + '\n')
+            # #endregion
         
         # Generate return address label
         return_addr_label = self.generate_label("ret_addr")
         
-        # Save return address in r:30 (link register)
-        # In FASM with ISA.inc, use 'label addr' syntax (not 'addr label')
-        self.emit(f"mov r:30, {return_addr_label} addr")
+        # Push return address onto stack: decrement r:30 (stack pointer), then store return address
+        # r:30 is the stack pointer (initialized to 4096 by entry macro)
+        self.emit(f"mov {self.get_register_name(temp_reg)}, {return_addr_label} addr")  # Get return address
+        self.emit(f"sub r:30, r:30, 1")  # Decrement stack pointer
+        self.emit(f"lds [r:30], {self.get_register_name(temp_reg)}")  # Push return address onto stack
+        self.reg_allocator.free_temp(temp_reg)
         
         # Jump to function by setting r:31 (instruction pointer) to function label
         func_label = self.function_labels[call.name]
@@ -963,6 +1016,15 @@ class CodeGenerator:
         
         # Return address label - execution continues here after function returns
         self.emit_label(return_addr_label)
+        
+        # Clean up parameters from stack (they were pushed before return address)
+        # Stack layout: [param0][param1]...[paramN][return_addr] (r:30 points to return_addr after return)
+        # We need to pop parameters: add r:30, r:30, num_params
+        if len(call.args) > 0:
+            cleanup_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(cleanup_reg)}, {len(call.args)}")
+            self.emit(f"add r:30, r:30, {self.get_register_name(cleanup_reg)}")  # Pop parameters from stack
+            self.reg_allocator.free_temp(cleanup_reg)
         
         # After function call, return value should be in r:0
         # Get return value
@@ -1127,16 +1189,6 @@ class CodeGenerator:
             
             # Evaluate condition
             condition_reg = self.generate_expression(stmt.condition)
-            # Use a fixed register (r:10) for zero to avoid conflicts with condition_reg
-            # r:10 is rarely used and should be safe
-            zero_reg = 10
-            # But if condition_reg is r:10, we need to use a different register
-            if condition_reg == zero_reg:
-                zero_reg = self.reg_allocator.get_temp_register()
-                while zero_reg == condition_reg:
-                    self.reg_allocator.free_temp(zero_reg)
-                    zero_reg = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
             
             # Conditional jump: if condition == 0 (false), exit loop
             # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)

@@ -17,7 +17,7 @@ Runtime State:
 - Hardware state: GPIO, UART, Timer simulation
 """
 
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Tuple
 from parser import (
     Program, FunctionDef, Statement, Expression,
     Literal, Identifier, BinaryOp, UnaryOp, FunctionCall,
@@ -37,11 +37,16 @@ class Environment:
     """Represents a scope/environment for variable bindings."""
     
     def __init__(self, parent: Optional['Environment'] = None):
+<<<<<<< Current (Your changes)
         self.vars: Dict[str, int] = {}  # Обычные переменные и указатели
         self.arrays: Dict[str, List[int]] = {}  # Массивы
         self.variable_addresses: Dict[str, int] = {}  # Адреса переменных (для &)
         self.array_addresses: Dict[str, int] = {}  # Адреса массивов (базовый адрес)
         self.next_address: int = 1000  # Начальный адрес для выделения памяти
+=======
+        self.vars: Dict[str, int] = {}
+        self.var_types: Dict[str, str] = {}  # Track variable types: 'uint32' or 'int32'
+>>>>>>> Incoming (Background Agent changes)
         self.parent = parent
     
     def get(self, name: str) -> int:
@@ -56,20 +61,31 @@ class Environment:
         """Set a variable in the current scope."""
         self.vars[name] = value & 0xFFFFFFFF  # Ensure 32-bit unsigned
     
-    def declare(self, name: str, value: Optional[int] = None):
+    def declare(self, name: str, value: Optional[int] = None, var_type: str = 'uint32'):
         """Declare a variable in the current scope."""
         if value is not None:
             self.vars[name] = value & 0xFFFFFFFF
         else:
             self.vars[name] = 0
+        self.var_types[name] = var_type
     
-    def assign(self, name: str, value: int) -> bool:
+    def get_type(self, name: str) -> str:
+        """Get the type of a variable, checking parent scopes."""
+        if name in self.var_types:
+            return self.var_types[name]
+        if self.parent:
+            return self.parent.get_type(name)
+        return 'uint32'  # Default type if not found
+    
+    def assign(self, name: str, value: int, var_type: Optional[str] = None) -> bool:
         """Assign to a variable, checking parent scopes."""
         if name in self.vars:
             self.vars[name] = value & 0xFFFFFFFF
+            if var_type is not None:
+                self.var_types[name] = var_type
             return True
         if self.parent:
-            return self.parent.assign(name, value)
+            return self.parent.assign(name, value, var_type)
         raise RuntimeError(f"Undefined variable: {name}")
     
     def declare_array(self, name: str, size: int) -> int:
@@ -203,6 +219,36 @@ class Interpreter:
         for func in program.functions:
             self.functions[func.name] = func
     
+    @staticmethod
+    def uint32_to_int32(value: int) -> int:
+        """Convert uint32 to int32 (interpret as signed).
+        Values >= 2^31 are interpreted as negative using two's complement.
+        """
+        value = value & 0xFFFFFFFF
+        if value >= 0x80000000:  # If MSB is set, it's negative
+            return value - 0x100000000  # Convert to negative
+        return value
+    
+    @staticmethod
+    def int32_to_uint32(value: int) -> int:
+        """Convert int32 to uint32 (preserve bit representation).
+        Negative values are converted using two's complement.
+        """
+        return value & 0xFFFFFFFF
+    
+    @staticmethod
+    def normalize_int32(value: int) -> int:
+        """Normalize value to int32 range (-2^31 to 2^31-1)."""
+        value = value & 0xFFFFFFFF
+        if value >= 0x80000000:
+            return value - 0x100000000
+        return value
+    
+    @staticmethod
+    def normalize_uint32(value: int) -> int:
+        """Normalize value to uint32 range (0 to 2^32-1)."""
+        return value & 0xFFFFFFFF
+    
     def interpret(self) -> int:
         """Interpret the program, starting from main."""
         # Declare global variables first
@@ -283,9 +329,33 @@ class Interpreter:
     
     def execute_var_decl(self, decl: VarDecl, env: Environment):
         """Execute a variable declaration."""
+        var_type = getattr(decl, 'var_type', 'uint32')  # Default to uint32 for backward compatibility
         value = 0
         if decl.initializer:
-            value = self.evaluate_expression(decl.initializer, env)
+            # Evaluate expression - we'll get the type from evaluate_expression later
+            value, expr_type = self.evaluate_expression_with_type(decl.initializer, env)
+            # Convert if needed: if target type is int32, convert the value appropriately
+            if var_type == 'int32':
+                if expr_type == 'uint32':
+                    # Convert uint32 to int32 (interpret as signed)
+                    value = self.normalize_int32(value)
+                else:
+                    # Already int32, just normalize
+                    value = self.normalize_int32(value)
+            else:
+                # Target is uint32
+                if expr_type == 'int32':
+                    # Convert int32 to uint32 (preserve bits)
+                    value = self.int32_to_uint32(value)
+                else:
+                    # Already uint32, just normalize
+                    value = self.normalize_uint32(value)
+        else:
+            # No initializer, just normalize based on type
+            if var_type == 'int32':
+                value = self.normalize_int32(0)
+            else:
+                value = self.normalize_uint32(0)
         
         if decl.is_register:
             # Register variable - store in hardware register
@@ -293,10 +363,10 @@ class Interpreter:
                 self.registers[decl.register_num] = value & 0xFFFFFFFF
                 self.register_map[decl.name] = decl.register_num
                 # Also store in environment for lookup
-                env.declare(decl.name, value)
+                env.declare(decl.name, value, var_type=var_type)
         else:
             # Normal variable
-            env.declare(decl.name, value)
+            env.declare(decl.name, value, var_type=var_type)
     
     def execute_array_decl(self, decl: ArrayDecl, env: Environment):
         """Execute an array declaration."""
@@ -330,8 +400,25 @@ class Interpreter:
         env.declare(decl.name, value)
     
     def execute_assignment(self, assignment: Assignment, env: Environment):
-        """Execute an assignment."""
-        value = self.evaluate_expression(assignment.value, env)
+        """Execute an assignment with automatic type conversion."""
+        # Get expression value and type
+        value, expr_type = self.evaluate_expression_with_type(assignment.value, env)
+        
+        # Get target variable type (default to uint32 if not found)
+        target_type = env.get_type(assignment.name)
+        
+        # Perform type conversion if needed
+        if target_type == 'int32':
+            if expr_type == 'uint32':
+                # Convert uint32 to int32 (interpret as signed)
+                value = self.uint32_to_int32(value)
+            value = self.normalize_int32(value)
+        else:
+            # Target is uint32
+            if expr_type == 'int32':
+                # Convert int32 to uint32 (preserve bit representation)
+                value = self.int32_to_uint32(value)
+            value = self.normalize_uint32(value)
         
         # Check if this is a register variable
         if assignment.name in self.register_map:
@@ -340,9 +427,9 @@ class Interpreter:
                 raise RuntimeError("Cannot write to register r31 (instruction pointer)")
             self.registers[reg_num] = value & 0xFFFFFFFF
             # Also update in environment
-            env.assign(assignment.name, value)
+            env.assign(assignment.name, value, var_type=target_type)
         else:
-            env.assign(assignment.name, value)
+            env.assign(assignment.name, value, var_type=target_type)
     
     def execute_array_assignment(self, assignment: ArrayAssignment, env: Environment):
         """Execute an array element assignment: arr[i] = value"""
@@ -432,15 +519,27 @@ class Interpreter:
     
     def evaluate_expression(self, expr: Expression, env: Environment) -> int:
         """Evaluate an expression and return its value."""
+        value, _ = self.evaluate_expression_with_type(expr, env)
+        return value
+    
+    def evaluate_expression_with_type(self, expr: Expression, env: Environment) -> Tuple[int, str]:
+        """Evaluate an expression and return (value, type) where type is 'uint32' or 'int32'."""
         if isinstance(expr, Literal):
-            return expr.value & 0xFFFFFFFF
+            value = expr.value & 0xFFFFFFFF
+            # Literals are treated as uint32 by default (unless they're negative, but we don't support that in lexer)
+            return value, 'uint32'
         
         elif isinstance(expr, Identifier):
             # Check if this is a register variable
             if expr.name in self.register_map:
                 reg_num = self.register_map[expr.name]
-                return self.registers[reg_num] & 0xFFFFFFFF
-            return env.get(expr.name) & 0xFFFFFFFF
+                value = self.registers[reg_num] & 0xFFFFFFFF
+                # Get type from environment if available, default to uint32
+                var_type = env.get_type(expr.name) if hasattr(env, 'get_type') else 'uint32'
+                return value, var_type
+            value = env.get(expr.name) & 0xFFFFFFFF
+            var_type = env.get_type(expr.name)
+            return value, var_type
         
         elif isinstance(expr, ArrayAccess):
             return self.evaluate_array_access(expr, env)
@@ -452,22 +551,72 @@ class Interpreter:
             return self.evaluate_dereference(expr, env)
         
         elif isinstance(expr, BinaryOp):
-            return self.evaluate_binary_op(expr, env)
+            return self.evaluate_binary_op_with_type(expr, env)
         
         elif isinstance(expr, UnaryOp):
-            return self.evaluate_unary_op(expr, env)
+            return self.evaluate_unary_op_with_type(expr, env)
         
         elif isinstance(expr, FunctionCall):
-            return self.execute_function_call(expr, env)
+            value = self.execute_function_call(expr, env)
+            # Function calls return uint32 by default (unless we track return types, which we don't yet)
+            return value, 'uint32'
         
         else:
             raise RuntimeError(f"Unknown expression type: {type(expr)}")
     
     def evaluate_binary_op(self, op: BinaryOp, env: Environment) -> int:
         """Evaluate a binary operation."""
-        left = self.evaluate_expression(op.left, env)
-        right = self.evaluate_expression(op.right, env)
+        value, _ = self.evaluate_binary_op_with_type(op, env)
+        return value
+    
+    def evaluate_binary_op_with_type(self, op: BinaryOp, env: Environment) -> Tuple[int, str]:
+        """Evaluate a binary operation and return (value, type)."""
+        left_val, left_type = self.evaluate_expression_with_type(op.left, env)
+        right_val, right_type = self.evaluate_expression_with_type(op.right, env)
         
+        # Determine result type based on operation and operand types
+        # For comparisons and logical ops, result is always uint32 (0 or 1)
+        comparison_ops = {'==', '!=', '<', '<=', '>', '>=', '&&', '||'}
+        bitwise_ops = {'&', '|', '^', '<<', '>>'}
+        arithmetic_ops = {'+', '-', '*', '/', '%'}
+        
+        # For comparisons and logical operations, convert both operands to same type before comparing
+        if op.op in comparison_ops:
+            # Convert both to int32 if either is int32 (for signed comparison)
+            if left_type == 'int32' or right_type == 'int32':
+                if left_type == 'uint32':
+                    left_val = self.uint32_to_int32(left_val)
+                if right_type == 'uint32':
+                    right_val = self.uint32_to_int32(right_val)
+                # For comparisons, result is always uint32 (0 or 1)
+                result_type = 'uint32'
+            else:
+                result_type = 'uint32'
+        elif op.op in arithmetic_ops:
+            # Arithmetic operations: if any operand is int32, result is int32
+            if left_type == 'int32' or right_type == 'int32':
+                # Convert uint32 to int32 for signed arithmetic
+                if left_type == 'uint32':
+                    left_val = self.uint32_to_int32(left_val)
+                if right_type == 'uint32':
+                    right_val = self.uint32_to_int32(right_val)
+                result_type = 'int32'
+            else:
+                result_type = 'uint32'
+        elif op.op in bitwise_ops:
+            # Bitwise operations preserve types - if any is int32, result is int32
+            if left_type == 'int32' or right_type == 'int32':
+                if left_type == 'uint32':
+                    left_val = self.uint32_to_int32(left_val)
+                if right_type == 'uint32':
+                    right_val = self.uint32_to_int32(right_val)
+                result_type = 'int32'
+            else:
+                result_type = 'uint32'
+        else:
+            result_type = 'uint32'  # Default
+        
+        # Perform the operation
         op_map = {
             '+': lambda l, r: (l + r) & 0xFFFFFFFF,
             '-': lambda l, r: (l - r) & 0xFFFFFFFF,
@@ -492,21 +641,51 @@ class Interpreter:
         if op.op not in op_map:
             raise RuntimeError(f"Unknown binary operator: {op.op}")
         
-        result = op_map[op.op](left, right)
-        return result & 0xFFFFFFFF
+        result = op_map[op.op](left_val, right_val)
+        
+        # Normalize result based on type
+        if result_type == 'int32':
+            result = self.normalize_int32(result)
+        else:
+            result = self.normalize_uint32(result)
+        
+        return result, result_type
     
     def evaluate_unary_op(self, op: UnaryOp, env: Environment) -> int:
         """Evaluate a unary operation."""
-        operand = self.evaluate_expression(op.operand, env)
+        value, _ = self.evaluate_unary_op_with_type(op, env)
+        return value
+    
+    def evaluate_unary_op_with_type(self, op: UnaryOp, env: Environment) -> Tuple[int, str]:
+        """Evaluate a unary operation and return (value, type)."""
+        operand_val, operand_type = self.evaluate_expression_with_type(op.operand, env)
         
+        # For unary minus, result type is int32 (even if operand is uint32, we convert it)
+        # For logical not, result is always uint32 (0 or 1)
+        # For bitwise not, result type matches operand type
         if op.op == '-':
-            return (-operand) & 0xFFFFFFFF
+            # Unary minus: convert to int32 if needed, then negate
+            if operand_type == 'uint32':
+                operand_val = self.uint32_to_int32(operand_val)
+            result = (-operand_val) & 0xFFFFFFFF
+            result_type = 'int32'
+            result = self.normalize_int32(result)
         elif op.op == '!':
-            return 0 if operand != 0 else 1
+            # Logical not: result is always uint32
+            result = 0 if operand_val != 0 else 1
+            result_type = 'uint32'
         elif op.op == '~':
-            return (~operand) & 0xFFFFFFFF
+            # Bitwise not: preserve type
+            result = (~operand_val) & 0xFFFFFFFF
+            result_type = operand_type
+            if result_type == 'int32':
+                result = self.normalize_int32(result)
+            else:
+                result = self.normalize_uint32(result)
         else:
             raise RuntimeError(f"Unknown unary operator: {op.op}")
+        
+        return result, result_type
     
     def evaluate_array_access(self, expr: ArrayAccess, env: Environment) -> int:
         """Evaluate array element access: arr[index]"""

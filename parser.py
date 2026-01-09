@@ -78,15 +78,19 @@ class Statement(ASTNode):
 
 class VarDecl(Statement):
     def __init__(self, name: str, initializer: Optional[Expression] = None, 
-                 is_register: bool = False, is_volatile: bool = False, register_num: Optional[int] = None):
+                 var_type: str = 'uint32', is_register: bool = False, 
+                 is_volatile: bool = False, register_num: Optional[int] = None):
         self.name = name
         self.initializer = initializer
+        self.var_type = var_type  # 'uint32' or 'int32'
         self.is_register = is_register
         self.is_volatile = is_volatile
         self.register_num = register_num  # For register variables: 0-31
     
     def __repr__(self):
         attrs = []
+        if self.var_type != 'uint32':
+            attrs.append(f"type={self.var_type}")
         if self.is_register:
             attrs.append(f"register={self.register_num}")
         if self.is_volatile:
@@ -342,8 +346,9 @@ class Parser:
                 (self.current_token().type == TokenType.INTERRUPT and 
                  self.peek_token() and self.peek_token().type == TokenType.FUNCTION)):
                 functions.append(self.parse_function())
-            # Check for global variable declarations (uint32, register, volatile)
+            # Check for global variable declarations (uint32, int32, register, volatile)
             elif (self.current_token().type == TokenType.UINT32 or
+                  self.current_token().type == TokenType.INT32 or
                   self.current_token().type == TokenType.REGISTER or
                   self.current_token().type == TokenType.VOLATILE):
                 global_vars.append(self.parse_var_decl())
@@ -434,8 +439,9 @@ class Parser:
         if not token:
             raise SyntaxError("Unexpected end of file")
         
-        # Variable declaration (can start with register, volatile, or uint32)
-        if (token.type == TokenType.UINT32 or 
+        # Variable declaration (can start with register, volatile, uint32, or int32)
+        if (token.type == TokenType.UINT32 or
+            token.type == TokenType.INT32 or
             token.type == TokenType.REGISTER or 
             token.type == TokenType.VOLATILE):
             return self.parse_var_decl()
@@ -524,11 +530,12 @@ class Parser:
             elif self.current_token().type == TokenType.VOLATILE:
                 self.advance()
                 is_volatile = True
-            elif self.current_token().type == TokenType.UINT32:
+            elif self.current_token().type in [TokenType.UINT32, TokenType.INT32]:
                 break
             else:
                 break
         
+<<<<<<< Current (Your changes)
         self.expect(TokenType.UINT32)
         
         # Check for pointer type: uint32* ptr
@@ -536,6 +543,18 @@ class Parser:
         if self.current_token() and self.current_token().type == TokenType.MULTIPLY:
             self.advance()  # consume *
             is_pointer = True
+=======
+        # Parse type (uint32 or int32)
+        var_type = 'uint32'  # default
+        if self.current_token().type == TokenType.UINT32:
+            self.advance()
+            var_type = 'uint32'
+        elif self.current_token().type == TokenType.INT32:
+            self.advance()
+            var_type = 'int32'
+        else:
+            raise SyntaxError(f"Expected uint32 or int32, got {self.current_token()} at line {self.current_token().line if self.current_token() else '?'}")
+>>>>>>> Incoming (Background Agent changes)
         
         name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name")
         name = name_token.value
@@ -592,7 +611,7 @@ class Parser:
             initializer = self.parse_expression()
         
         self.expect(TokenType.SEMICOLON)
-        return VarDecl(name, initializer, is_register=is_register, is_volatile=is_volatile, register_num=register_num)
+        return VarDecl(name, initializer, var_type=var_type, is_register=is_register, is_volatile=is_volatile, register_num=register_num)
     
     def parse_assignment(self):
         """Parse an assignment statement (can be Assignment, ArrayAssignment, or PointerAssignment)."""
@@ -685,9 +704,16 @@ class Parser:
         
         # Initialization (optional)
         init = None
-        if self.current_token() and self.current_token().type == TokenType.UINT32:
+        if self.current_token() and self.current_token().type in [TokenType.UINT32, TokenType.INT32]:
             # Variable declaration in for loop
-            self.expect(TokenType.UINT32)
+            var_type = 'uint32'
+            if self.current_token().type == TokenType.UINT32:
+                self.advance()
+                var_type = 'uint32'
+            elif self.current_token().type == TokenType.INT32:
+                self.advance()
+                var_type = 'int32'
+            
             name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name")
             name = name_token.value
             
@@ -696,7 +722,7 @@ class Parser:
                 self.advance()
                 initializer = self.parse_expression()
             
-            init = VarDecl(name, initializer)
+            init = VarDecl(name, initializer, var_type=var_type)
         elif self.current_token() and self.current_token().type == TokenType.IDENTIFIER:
             # Could be assignment
             if self.peek_token() and self.peek_token().type == TokenType.ASSIGN:

@@ -2,7 +2,7 @@
 Lexer (Tokenizer) for Simple C-Style Language
 
 This module converts source code into a stream of tokens. The lexer recognizes:
-- Keywords (function, uint32, if, else, while, for, return, etc.)
+- Keywords (function, uint32, int32, if, else, while, for, return, etc.)
 - Operators (arithmetic, logical, relational, bitwise)
 - Identifiers (variable and function names)
 - Literals (integer constants)
@@ -20,6 +20,7 @@ from typing import List, Optional, Tuple
 class TokenType(Enum):
     # Keywords
     UINT32 = "UINT32"
+    INT32 = "INT32"
     FUNCTION = "FUNCTION"
     FOR = "FOR"
     WHILE = "WHILE"
@@ -209,6 +210,7 @@ class Lexer:
                 identifier = self.read_identifier_or_keyword()
                 keyword_map = {
                     'uint32': TokenType.UINT32,
+                    'int32': TokenType.INT32,
                     'function': TokenType.FUNCTION,
                     'for': TokenType.FOR,
                     'while': TokenType.WHILE,

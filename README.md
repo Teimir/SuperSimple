@@ -52,6 +52,11 @@ Example programs are organized in the `test_examples/` directory by category:
 - `sum_range.sc` - Sum of numbers using for loop
 - `nested_loops.sc` - Nested for loops example
 - `hello_world/hello_world.sc` - Hello World example (outputs to UART)
+- `arrays.sc` - Comprehensive array operations (declaration, initialization, access)
+- `pointer_example.sc` - Pointer operations (address-of, dereference, assignment)
+- `array_pointer.sc` - Arrays and pointers together
+- `pointer_function.sc` - Passing pointers to functions
+- `array_sum.sc` - Calculate sum of array elements using pointer arithmetic
 
 ### Hardware Examples (`test_examples/hardware/`)
 - `register_test.sc` - Register variable access
@@ -64,11 +69,10 @@ Example programs are organized in the `test_examples/` directory by category:
 - Header files: `gpio.h`, `uart.h`, `timer.h`, `hardware.h`
 
 ### Operator Examples (`test_examples/operators/`)
-- `logical_operators.sc` - Logical operators tests
+- `hex_literals.sc` - Hexadecimal literal values
 - `relational_operators.sc` - Relational operators tests
 - `operator_precedence.sc` - Operator precedence testing
-- `prefix_vs_postfix.sc` - Prefix vs postfix increment/decrement
-- `increment_test.sc` - Increment/decrement operators
+- `increment_decrement.sc` - Increment/decrement operators (prefix and postfix)
 
 ### Include Examples (`test_examples/includes/`)
 - `include_example.sc` - Basic include directive
@@ -84,8 +88,7 @@ Example programs are organized in the `test_examples/` directory by category:
 - `scope_test.sc` - Variable scoping
 - `complex_nested.sc` - Complex nested structures
 - `overflow.sc` - Integer overflow testing
-- `for_increment.sc` - For loop with increment
-- `for_decrement.sc` - For loop with decrement
+- `for_loops.sc` - For loops with increment and decrement
 
 See `test_examples/README.md` for detailed descriptions.
 
@@ -142,8 +145,8 @@ aiproj/
 │   ├── includes/          # Include directive examples
 │   ├── advanced/          # Advanced programming examples
 │   ├── complex_example/   # Complex example with functions
-│   ├── simple_return/     # Simple return example
-│   └── test_example/      # Test example
+│   ├── math_test/         # Math library testing
+│   └── uart_message/      # UART message examples
 │
 ├── self_tests/            # Unit tests
 │   ├── test_lexer.py
@@ -245,12 +248,25 @@ python -m unittest self_tests.test_preprocessor
 
 All tests use Python's built-in `unittest` framework - no external dependencies required.
 
+## Features
+
+### Arrays and Pointers
+- Array declarations and initialization
+- Array element access and assignment
+- Pointer declarations and dereferencing
+- Address-of operator (`&`)
+- Pointer arithmetic
+
+### Memory Management
+- Arrays are allocated in memory (data section) for better performance
+- r:30 is used as stack pointer for local variables
+- Efficient memory access patterns
+
 ## Limitations
 
-- No arrays or pointers
 - No strings or characters
 - No floating-point numbers
-- Single data type only (uint32)
+- Single data type only (uint32 and int32)
 - Division by zero causes runtime error
 - Integer overflow wraps around (modulo 2^32)
 - No `#define` macro support (only `#include` is supported)

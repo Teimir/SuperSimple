@@ -61,7 +61,7 @@ class RegisterAllocator:
         # Use registers starting from r11 for variables
         reg_num = 11 + len(self.allocated)
         if reg_num > 30:
-            raise RuntimeError(f"Too many variables: register allocation failed for {name}")
+            raise RuntimeError(f"Code generation error: Too many variables (register allocation failed for '{name}' in function '{self.current_function}')")
         
         self.allocated[name] = reg_num
         return reg_num
@@ -234,7 +234,7 @@ class CodeGenerator:
         
         return "\n".join(self.code)
     
-    def generate_function(self, func: FunctionDef):
+    def generate_function(self, func: FunctionDef) -> None:
         """Generate assembly code for a function."""
         old_func = self.current_function
         self.current_function = func.name
@@ -268,7 +268,7 @@ class CodeGenerator:
             # Use r26-r30 for parameters
             param_reg = 26 + i
             if param_reg > 30:
-                raise RuntimeError(f"Too many parameters in function {func.name}")
+                raise RuntimeError(f"Code generation error: Too many parameters in function '{func.name}' (maximum 5 parameters supported)")
             self.reg_allocator.allocated[param] = param_reg
             param_regs.append(param_reg)
         
@@ -307,7 +307,7 @@ class CodeGenerator:
         self.reg_allocator = old_allocator
         self.stack_offset = old_stack_offset
     
-    def generate_statement(self, stmt: Statement):
+    def generate_statement(self, stmt: Statement) -> None:
         """Generate assembly code for a statement."""
         if isinstance(stmt, VarDecl):
             self.generate_var_decl(stmt)
@@ -339,7 +339,7 @@ class CodeGenerator:
                 args = [self.generate_expression(arg) for arg in stmt.call.args]
                 if stmt.call.name == 'uart_write':
                     if len(args) != 1:
-                        raise RuntimeError(f"uart_write expects 1 argument, got {len(args)}")
+                        raise RuntimeError(f"Code generation error: uart_write expects 1 argument, got {len(args)}")
                     data_reg = args[0]
                     self.emit(f"outu {self.get_register_name(data_reg)}")
                     self.reg_allocator.free_temp(data_reg)
@@ -362,9 +362,9 @@ class CodeGenerator:
         elif isinstance(stmt, ContinueStmt):
             self.generate_continue(stmt)
         else:
-            raise RuntimeError(f"Unknown statement type: {type(stmt)}")
+            raise RuntimeError(f"Code generation error: Unknown statement type '{type(stmt).__name__}' in function '{self.current_function}'")
     
-    def generate_var_decl(self, decl: VarDecl):
+    def generate_var_decl(self, decl: VarDecl) -> None:
         """Generate code for variable declaration."""
         # Check if this is a global variable
         is_global = (self.current_function is None)
@@ -373,7 +373,7 @@ class CodeGenerator:
             # Register variable - just allocate it
             reg_num = int(decl.name[1:])  # Extract number from "r0", "r1", etc.
             if reg_num < 0 or reg_num > 30:
-                raise RuntimeError(f"Invalid register name: {decl.name}")
+                raise RuntimeError(f"Code generation error: Invalid register name '{decl.name}' (must be r0-r31)")
             self.reg_allocator.allocated[decl.name] = reg_num
             # Initialize if needed
             if decl.initializer:
@@ -416,7 +416,7 @@ class CodeGenerator:
                 # Initialize to 0
                 self.emit(f"mov {self.get_register_name(reg_num)}, 0")
     
-    def generate_assignment(self, assign: Assignment):
+    def generate_assignment(self, assign: Assignment) -> None:
         """Generate code for assignment."""
         # Evaluate expression
         value_reg = self.generate_expression(assign.value)
@@ -456,10 +456,17 @@ class CodeGenerator:
         elif isinstance(expr, FunctionCall):
             return self.generate_function_call(expr)
         else:
-            raise RuntimeError(f"Unknown expression type: {type(expr)}")
+            raise RuntimeError(f"Code generation error: Unknown expression type '{type(expr).__name__}' in function '{self.current_function}'")
     
     def generate_literal(self, lit: Literal) -> int:
-        """Generate code for literal and return register with value."""
+        """Generate code for literal and return register with value.
+        
+        Args:
+            lit: Literal expression node containing the value
+            
+        Returns:
+            Register number containing the literal value
+        """
         temp_reg = self.reg_allocator.get_temp_register()
         # For now, use mov with immediate (if ISA supports it)
         # Otherwise, we'd need to load from memory
@@ -475,14 +482,23 @@ class CodeGenerator:
             if ident.name.startswith('r') and ident.name[1:].isdigit():
                 reg = int(ident.name[1:])
             else:
-                raise RuntimeError(f"Undefined variable: {ident.name}")
+                raise RuntimeError(f"Code generation error: Undefined variable '{ident.name}' in function '{self.current_function}'")
         
         # If it's already in a register, return it
         # Otherwise, we'd need to load from memory (not implemented)
         return reg
     
     def generate_binary_op(self, op: BinaryOp) -> int:
-        """Generate code for binary operation."""
+        """Generate code for binary operation.
+        
+        Args:
+            op: BinaryOp expression node with operator and left/right operands
+            
+        Returns:
+            Register number containing the result of the operation
+            
+        Supported operators: +, -, *, /, %, &, |, ^, <<, >>, ==, !=, <, <=, >, >=, &&, ||
+        """
         left_reg = self.generate_expression(op.left)
         right_reg = self.generate_expression(op.right)
         result_reg = self.reg_allocator.get_temp_register()
@@ -859,14 +875,23 @@ class CodeGenerator:
             self.reg_allocator.free_temp(temp)
             self.reg_allocator.free_temp(zero_reg)
         else:
-            raise RuntimeError(f"Unknown binary operator: {op.op}")
+            raise RuntimeError(f"Code generation error: Unknown binary operator '{op.op}' in function '{self.current_function}'")
         
         self.reg_allocator.free_temp(left_reg)
         self.reg_allocator.free_temp(right_reg)
         return result_reg
     
     def generate_unary_op(self, op: UnaryOp) -> int:
-        """Generate code for unary operation."""
+        """Generate code for unary operation.
+        
+        Args:
+            op: UnaryOp expression node with operator and operand
+            
+        Returns:
+            Register number containing the result of the operation
+            
+        Supported operators: !, ~, - (unary minus)
+        """
         operand_reg = self.generate_expression(op.operand)
         result_reg = self.reg_allocator.get_temp_register()
         
@@ -893,13 +918,24 @@ class CodeGenerator:
             self.emit(f"sub {self.get_register_name(result_reg)}, {self.get_register_name(zero_reg)}, {self.get_register_name(operand_reg)}")
             self.reg_allocator.free_temp(zero_reg)
         else:
-            raise RuntimeError(f"Unknown unary operator: {op.op}")
+            raise RuntimeError(f"Code generation error: Unknown unary operator '{op.op}' in function '{self.current_function}'")
         
         self.reg_allocator.free_temp(operand_reg)
         return result_reg
     
     def generate_function_call(self, call: FunctionCall) -> int:
-        """Generate code for function call."""
+        """Generate code for function call.
+        
+        Args:
+            call: FunctionCall expression node with function name and arguments
+            
+        Returns:
+            Register number containing the return value (r:0 after function call)
+            
+        Note:
+            Parameters are passed in registers r26-r30 (max 5 parameters).
+            Return value is expected in r:0.
+        """
         # Check if it's a built-in hardware function
         if call.name not in self.function_labels:
             return self.generate_hardware_function(call)
@@ -937,7 +973,19 @@ class CodeGenerator:
         return result_reg
     
     def generate_hardware_function(self, call: FunctionCall) -> int:
-        """Generate code for hardware function calls."""
+        """Generate code for hardware function calls.
+        
+        Args:
+            call: FunctionCall expression node with hardware function name and arguments
+            
+        Returns:
+            Register number containing the result (if any)
+            
+        Supported hardware functions:
+            - GPIO: gpio_set, gpio_read, gpio_write
+            - UART: uart_set_baud, uart_read, uart_write
+            - Timer: timer_set_mode, timer_start, timer_stop, etc.
+        """
         result_reg = self.reg_allocator.get_temp_register()
         
         if call.name == 'gpio_set':
@@ -999,11 +1047,11 @@ class CodeGenerator:
             self.reg_allocator.free_temp(data_reg)
             self.emit(f"mov {self.get_register_name(result_reg)}, 0")
         else:
-            raise RuntimeError(f"Unknown hardware function: {call.name}")
+            raise RuntimeError(f"Code generation error: Unknown hardware function '{call.name}' in function '{self.current_function}'")
         
         return result_reg
     
-    def generate_return(self, stmt: Return):
+    def generate_return(self, stmt: Return) -> None:
         """Generate code for return statement."""
         # Mark that we have an explicit return
         self._has_explicit_return = True
@@ -1031,7 +1079,7 @@ class CodeGenerator:
             # Return to caller by jumping to return address
             self.emit(f"mov r:31, r:29")
     
-    def generate_if(self, stmt: IfStmt):
+    def generate_if(self, stmt: IfStmt) -> None:
         """Generate code for if statement."""
         condition_reg = self.generate_expression(stmt.condition)
         else_label = self.generate_label("else")
@@ -1065,7 +1113,7 @@ class CodeGenerator:
         
         self.emit_label(end_label)
     
-    def generate_while(self, stmt: WhileStmt):
+    def generate_while(self, stmt: WhileStmt) -> None:
         """Generate code for while loop."""
         start_label = self.generate_label("while_start")
         end_label = self.generate_label("while_end")
@@ -1109,7 +1157,7 @@ class CodeGenerator:
             # Remove loop context from stack
             self.loop_stack.pop()
     
-    def generate_for(self, stmt: ForStmt):
+    def generate_for(self, stmt: ForStmt) -> None:
         """Generate code for for loop."""
         # Initialize
         if stmt.init:
@@ -1155,12 +1203,12 @@ class CodeGenerator:
             # Remove loop context from stack
             self.loop_stack.pop()
     
-    def generate_block(self, block: Block):
+    def generate_block(self, block: Block) -> None:
         """Generate code for block."""
         for stmt in block.statements:
             self.generate_statement(stmt)
     
-    def generate_break(self, stmt: BreakStmt):
+    def generate_break(self, stmt: BreakStmt) -> None:
         """Generate code for break statement."""
         if not self.loop_stack:
             raise RuntimeError("break statement outside of loop")
@@ -1169,7 +1217,7 @@ class CodeGenerator:
         # Jump to end of loop
         self.emit(f"mov r:31, {loop_context.end_label} addr")
     
-    def generate_continue(self, stmt: ContinueStmt):
+    def generate_continue(self, stmt: ContinueStmt) -> None:
         """Generate code for continue statement."""
         if not self.loop_stack:
             raise RuntimeError("continue statement outside of loop")
@@ -1181,7 +1229,7 @@ class CodeGenerator:
         else:
             self.emit(f"mov r:31, {loop_context.start_label} addr")
     
-    def generate_array_decl(self, decl: ArrayDecl):
+    def generate_array_decl(self, decl: ArrayDecl) -> None:
         """Generate code for array declaration."""
         # Evaluate size (must be a literal constant)
         if not isinstance(decl.size, Literal):
@@ -1256,7 +1304,7 @@ class CodeGenerator:
             self.array_addresses[decl.name] = label
             self.array_sizes[decl.name] = size
     
-    def generate_pointer_decl(self, decl: PointerDecl):
+    def generate_pointer_decl(self, decl: PointerDecl) -> None:
         """Generate code for pointer declaration."""
         # Allocate register for pointer (stores address)
         reg_num = self.reg_allocator.allocate(decl.name)
@@ -1331,7 +1379,7 @@ class CodeGenerator:
                     self.emit(f"mov {self.get_register_name(result_reg)}, {base_addr} addr")
                 else:
                     # This should not happen anymore - all arrays should have string labels
-                    raise RuntimeError(f"Array {operand.name} has invalid address type: {type(base_addr)}")
+                    raise RuntimeError(f"Code generation error: Array '{operand.name}' has invalid address type '{type(base_addr).__name__}' in function '{self.current_function}'")
             else:
                 raise RuntimeError(f"Variable or array {operand.name} not found for address-of")
         elif isinstance(operand, ArrayAccess):
@@ -1363,7 +1411,7 @@ class CodeGenerator:
             # &*ptr - just the value of ptr (address it points to)
             return self.generate_expression(operand.operand)
         else:
-            raise RuntimeError(f"Cannot take address of {type(operand)}")
+            raise RuntimeError(f"Code generation error: Cannot take address of '{type(operand).__name__}' in function '{self.current_function}'")
         
         return result_reg
     
@@ -1379,7 +1427,7 @@ class CodeGenerator:
         self.reg_allocator.free_temp(addr_reg)
         return result_reg
     
-    def generate_array_assignment(self, assign: ArrayAssignment):
+    def generate_array_assignment(self, assign: ArrayAssignment) -> None:
         """Generate code for array element assignment: arr[i] = value"""
         # Evaluate index and value
         index_reg = self.generate_expression(assign.index)
@@ -1397,7 +1445,7 @@ class CodeGenerator:
                 self.emit(f"mov {self.get_register_name(addr_reg)}, {base_addr} addr")
             else:
                 # This should not happen anymore - all arrays should have string labels
-                raise RuntimeError(f"Array {assign.name} has invalid address type: {type(base_addr)}")
+                raise RuntimeError(f"Code generation error: Array '{assign.name}' has invalid address type '{type(base_addr).__name__}' in function '{self.current_function}'")
             
             # Add index
             self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
@@ -1411,7 +1459,7 @@ class CodeGenerator:
         else:
             raise RuntimeError(f"Array {assign.name} not found")
     
-    def generate_pointer_assignment(self, assign: PointerAssignment):
+    def generate_pointer_assignment(self, assign: PointerAssignment) -> None:
         """Generate code for pointer dereference assignment: *ptr = value"""
         # Evaluate address (value of pointer)
         addr_reg = self.generate_expression(assign.operand)

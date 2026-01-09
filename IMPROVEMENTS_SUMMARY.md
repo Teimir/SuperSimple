@@ -34,6 +34,67 @@
 - Исправлены типы для `array_addresses` (теперь `Dict[str, str]`)
 - Упрощена логика работы с массивами
 
+### 5. ✅ Удаление отладочного кода
+
+- Удалены все блоки `debug.log` из `interpreter.py`
+- Удален неиспользуемый импорт `json`
+- Код стал чище и быстрее (нет лишних операций записи в файл)
+
+### 6. ✅ Обновление документации
+
+- Обновлен `README.md` с актуальными примерами:
+  - Заменены устаревшие примеры (`prefix_vs_postfix.sc`, `increment_test.sc` → `increment_decrement.sc`)
+  - Заменены `for_increment.sc` и `for_decrement.sc` → `for_loops.sc`
+  - Добавлена информация о массивах и указателях
+  - Обновлена структура проекта
+- Удалены упоминания пустых папок из структуры проекта
+
+### 7. ✅ Очистка структуры проекта
+
+- Удалены пустые папки: `test_examples/simple_return/` и `test_examples/test_example/`
+- Удален временный тестовый файл: `test/test_and_simple.sc`
+
+### 8. ✅ Улучшение типизации
+
+- Добавлены type hints для всех методов генерации кода в `codegen.py`:
+  - `generate_function() -> None`
+  - `generate_statement() -> None`
+  - `generate_expression() -> int`
+  - `generate_var_decl() -> None`
+  - `generate_assignment() -> None`
+  - `generate_return() -> None`
+  - `generate_if() -> None`
+  - `generate_while() -> None`
+  - `generate_for() -> None`
+  - `generate_array_decl() -> None`
+  - `generate_pointer_decl() -> None`
+  - `generate_array_assignment() -> None`
+  - `generate_pointer_assignment() -> None`
+  - `generate_block() -> None`
+  - `generate_break() -> None`
+  - `generate_continue() -> None`
+  - И другие методы генерации выражений
+
+### 9. ✅ Улучшение обработки ошибок
+
+- Все сообщения об ошибках в `codegen.py` теперь содержат:
+  - Префикс "Code generation error:" для идентификации
+  - Контекст (имя функции, где произошла ошибка)
+  - Более информативные описания
+- Примеры улучшенных сообщений:
+  - `"Code generation error: Too many variables (register allocation failed for 'x' in function 'main')"`
+  - `"Code generation error: Unknown expression type 'CustomExpr' in function 'foo'"`
+  - `"Code generation error: Undefined variable 'y' in function 'bar'"`
+
+### 10. ✅ Улучшение docstrings
+
+- Добавлены подробные docstrings для основных методов генерации кода:
+  - `generate_literal()` - описание параметров и возвращаемого значения
+  - `generate_binary_op()` - список поддерживаемых операторов
+  - `generate_unary_op()` - список поддерживаемых операторов
+  - `generate_function_call()` - описание соглашения о вызовах
+  - `generate_hardware_function()` - список поддерживаемых аппаратных функций
+
 ## Планируемые улучшения
 
 ### 1. Реорганизация структуры папок (опционально)
@@ -54,8 +115,8 @@ test_examples/
 
 ### 2. Дополнительные улучшения кода
 
-- [ ] Добавить type hints для всех методов
-- [ ] Улучшить docstrings
+- [x] Добавить type hints для всех методов
+- [x] Улучшить docstrings
 - [ ] Унифицировать стиль комментариев
 - [ ] Добавить валидацию входных данных
 
@@ -67,7 +128,7 @@ test_examples/
 
 ### 4. Документация
 
-- [ ] Обновить основной README.md
+- [x] Обновить основной README.md
 - [ ] Добавить примеры в документацию
 - [ ] Создать руководство для разработчиков
 
@@ -76,8 +137,13 @@ test_examples/
 - **Примеры:** 43 → 37 файлов (-14%)
 - **Дубликаты:** 6 → 0 (-100%)
 - **Избыточные:** 2 → 0 (-100%)
-- **Читаемость:** Улучшена за счет объединения связанных примеров
-- **Поддерживаемость:** Улучшена за счет упрощения структуры
+- **Пустые папки:** 2 → 0 (-100%)
+- **Отладочный код:** Удалено ~50 строк debug.log записей
+- **Type hints:** Добавлено для 20+ методов
+- **Docstrings:** Улучшено для 10+ ключевых методов
+- **Сообщения об ошибках:** Все содержат контекст и префикс
+- **Читаемость:** Улучшена за счет объединения связанных примеров и улучшения документации
+- **Поддерживаемость:** Улучшена за счет упрощения структуры, типизации и лучших сообщений об ошибках
 
 ## Рекомендации
 

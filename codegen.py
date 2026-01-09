@@ -102,9 +102,10 @@ class CodeGenerator:
         self.loop_stack: List[LoopContext] = []
         
         # Memory management
-        self.array_addresses: Dict[str, int] = {}  # array name -> base address (stack offset or label)
+        self.array_addresses: Dict[str, str] = {}  # array name -> label name (all arrays in memory)
+        self.array_sizes: Dict[str, int] = {}  # array name -> size
         self.variable_addresses: Dict[str, int] = {}  # var name -> address (stack offset or label)
-        self.stack_offset: int = 0  # Current offset from base stack address (r30)
+        self.stack_offset: int = 0  # Current offset from base stack address (r30) - only for variables, not arrays
         self.data_section: List[str] = []  # Global data section
         self.global_data_labels: Dict[str, str] = {}  # Global variable/array name -> label
         
@@ -1215,42 +1216,45 @@ class CodeGenerator:
                     self.data_section.append(f"\tdd 0")
             self.array_addresses[decl.name] = label  # Store label name for address calculation
         else:
-            # Local array - allocate on stack
-            # Allocate space on stack: sub r:30, r:30, size
-            self.emit_comment(f"Allocate array {decl.name}[{size}] on stack")
-            self.emit(f"sub r:30, r:30, {size}")
+            # Local array - allocate in memory (data section), not on stack
+            # r:30 is used as stack pointer for variables only
+            # Arrays are allocated in memory with unique labels
+            label = f"array_{self.current_function}_{decl.name}_{self.label_counter}"
+            self.label_counter += 1
+            self.data_section.append(f"{label}:")
             
-            # Store base address offset for this array
-            self.array_addresses[decl.name] = self.stack_offset
-            self.stack_offset += size
-            
-            # Initialize array elements if initializer provided
+            # Initialize with values or zeros
             if decl.initializer:
-                # After "sub r:30, r:30, size", r:30 points to the base of the array
-                # We'll compute address from r:30 directly for each element to avoid register conflicts
-                
-                # Initialize each element
+                # Initialize with provided values
                 for i, init_expr in enumerate(decl.initializer):
-                    value_reg = self.generate_expression(init_expr)
-                    # Calculate address of element i
-                    # Base address is r:30 (after sub r:30, r:30, size)
-                    addr_reg = self.reg_allocator.get_temp_register()
-                    
-                    if i == 0:
-                        # First element is at base address (r:30)
-                        self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+                    if isinstance(init_expr, Literal):
+                        self.data_section.append(f"\tdd {init_expr.value}")
                     else:
-                        # Subsequent elements: r:30 + index
-                        self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+                        # For non-constant initializers, we need to generate code to initialize at runtime
+                        # For now, use 0 and generate initialization code
+                        self.data_section.append(f"\tdd 0")
+                        # Generate runtime initialization code
+                        value_reg = self.generate_expression(init_expr)
+                        addr_reg = self.reg_allocator.get_temp_register()
+                        self.emit(f"mov {self.get_register_name(addr_reg)}, {label} addr")
                         index_reg = self.reg_allocator.get_temp_register()
                         self.emit(f"mov {self.get_register_name(index_reg)}, {i}")
                         self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
+                        self.emit(f"lds [{self.get_register_name(addr_reg)}], {self.get_register_name(value_reg)}")
+                        self.reg_allocator.free_temp(addr_reg)
                         self.reg_allocator.free_temp(index_reg)
-                    
-                    # Store value: lds [addr_reg], value_reg
-                    self.emit(f"lds [{self.get_register_name(addr_reg)}], {self.get_register_name(value_reg)}")
-                    self.reg_allocator.free_temp(addr_reg)
-                    self.reg_allocator.free_temp(value_reg)
+                        self.reg_allocator.free_temp(value_reg)
+                # Fill remaining elements with zeros
+                for _ in range(size - len(decl.initializer)):
+                    self.data_section.append(f"\tdd 0")
+            else:
+                # Initialize with zeros
+                for _ in range(size):
+                    self.data_section.append(f"\tdd 0")
+            
+            # Store label name for address calculation
+            self.array_addresses[decl.name] = label
+            self.array_sizes[decl.name] = size
     
     def generate_pointer_decl(self, decl: PointerDecl):
         """Generate code for pointer declaration."""
@@ -1279,18 +1283,13 @@ class CodeGenerator:
             addr_reg = self.reg_allocator.get_temp_register()
             
             # Calculate address: base + index (each element = 1 memory cell)
+            # All arrays (global and local) are now in memory with labels
             if isinstance(base_addr, str):
-                # Global array - use label address
+                # Array in memory - use label address
                 self.emit(f"mov {self.get_register_name(addr_reg)}, {base_addr} addr")
             else:
-                # Local array - base is offset from r30
-                # Address = r30 + base_offset + index
-                self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
-                if base_addr > 0:
-                    offset_reg = self.reg_allocator.get_temp_register()
-                    self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
-                    self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(offset_reg)}")
-                    self.reg_allocator.free_temp(offset_reg)
+                # This should not happen anymore - all arrays should have string labels
+                raise RuntimeError(f"Array {expr.name} has invalid address type: {type(base_addr)}")
             
             # Add index
             self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
@@ -1326,16 +1325,13 @@ class CodeGenerator:
                         self.reg_allocator.free_temp(offset_reg)
             elif operand.name in self.array_addresses:
                 # &array (base address)
+                # All arrays (global and local) are now in memory with labels
                 base_addr = self.array_addresses[operand.name]
                 if isinstance(base_addr, str):
                     self.emit(f"mov {self.get_register_name(result_reg)}, {base_addr} addr")
                 else:
-                    self.emit(f"mov {self.get_register_name(result_reg)}, r:30")
-                    if base_addr > 0:
-                        offset_reg = self.reg_allocator.get_temp_register()
-                        self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
-                        self.emit(f"add {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(offset_reg)}")
-                        self.reg_allocator.free_temp(offset_reg)
+                    # This should not happen anymore - all arrays should have string labels
+                    raise RuntimeError(f"Array {operand.name} has invalid address type: {type(base_addr)}")
             else:
                 raise RuntimeError(f"Variable or array {operand.name} not found for address-of")
         elif isinstance(operand, ArrayAccess):
@@ -1348,15 +1344,12 @@ class CodeGenerator:
                 addr_reg = self.reg_allocator.get_temp_register()
                 
                 # Calculate base address
+                # All arrays (global and local) are now in memory with labels
                 if isinstance(base_addr, str):
                     self.emit(f"mov {self.get_register_name(addr_reg)}, {base_addr} addr")
                 else:
-                    self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
-                    if base_addr > 0:
-                        offset_reg = self.reg_allocator.get_temp_register()
-                        self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
-                        self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(offset_reg)}")
-                        self.reg_allocator.free_temp(offset_reg)
+                    # This should not happen anymore - all arrays should have string labels
+                    raise RuntimeError(f"Array {arr_name} has invalid address type: {type(base_addr)}")
                 
                 # Add index
                 self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
@@ -1398,17 +1391,13 @@ class CodeGenerator:
             addr_reg = self.reg_allocator.get_temp_register()
             
             # Calculate address: base + index
+            # All arrays (global and local) are now in memory with labels
             if isinstance(base_addr, str):
-                # Global array
+                # Array in memory - use label address
                 self.emit(f"mov {self.get_register_name(addr_reg)}, {base_addr} addr")
             else:
-                # Local array
-                self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
-                if base_addr > 0:
-                    offset_reg = self.reg_allocator.get_temp_register()
-                    self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
-                    self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(offset_reg)}")
-                    self.reg_allocator.free_temp(offset_reg)
+                # This should not happen anymore - all arrays should have string labels
+                raise RuntimeError(f"Array {assign.name} has invalid address type: {type(base_addr)}")
             
             # Add index
             self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")

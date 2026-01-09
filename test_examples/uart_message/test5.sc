@@ -15,10 +15,15 @@ function main() {
     for (int32 i = 0; i < 12; i++){
       uart_write(arr2[i]);  
     }
+    hello();
+    
+    return 0;
+}
 
-    int32 arr1[9] = {66, 121, 101, 32, 87, 111, 114, 108, 100};
+function hello(){
+  int32 arr1[9] = {66, 121, 101, 32, 87, 111, 114, 108, 100};
     for (int32 j = 0; j < 9; j++){
       uart_write(arr1[j]);  
-    }
-    return 0;
+  }
+  return 0;
 }

@@ -284,11 +284,6 @@ class CodeGenerator:
                 self.reg_allocator.free_temp(offset_reg)
             self.emit(f"lds {self.get_register_name(param_reg)}, [{self.get_register_name(addr_reg)}]")
             self.reg_allocator.free_temp(addr_reg)
-            # #region agent log
-            import json
-            with open(r'e:\aiproj\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"location":"codegen.py:280","message":"Parameter loaded from stack","data":{"func":func.name,"param":param,"param_reg":param_reg,"stack_offset":offset},"timestamp":0,"sessionId":"debug-session","hypothesisId":"H3"}) + '\n')
-            # #endregion
         
         self.reg_allocator.free_temp(temp_reg)
         
@@ -751,52 +746,23 @@ class CodeGenerator:
                 self.reg_allocator.free_temp(temp)
         elif op.op == '<':
             # Less than: use cmpb
-            # #region agent log
-            import json
-            log_data = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "A",
-                "location": "codegen.py:752",
-                "message": "Generating '<' operator",
-                "data": {
-                    "result_reg": result_reg,
-                    "left_reg": left_reg,
-                    "right_reg": right_reg,
-                    "has_conflict": result_reg == left_reg or result_reg == right_reg
-                },
-                "timestamp": int(__import__('time').time() * 1000)
-            }
-            with open(r"e:\aiproj\.cursor\debug.log", "a") as f:
-                f.write(json.dumps(log_data) + "\n")
-            # #endregion
             # Check if result_reg conflicts with left_reg or right_reg
             if result_reg == left_reg or result_reg == right_reg:
                 temp_cmp = self.reg_allocator.get_temp_register()
                 self.emit(f"cmpb {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
                 # Convert -1 (less) to 1, 0 (not less) to 0
-                temp = self.reg_allocator.get_temp_register()
-                self.emit(f"mov {self.get_register_name(temp)}, -1")
-                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(temp)}")
-                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-                # #region agent log
-                log_data2 = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "A",
-                    "location": "codegen.py:765",
-                    "message": "Generated '<' with conflict (temp_cmp path)",
-                    "data": {
-                        "temp_cmp": temp_cmp,
-                        "temp": temp,
-                        "result_reg": result_reg
-                    },
-                    "timestamp": int(__import__('time').time() * 1000)
-                }
-                with open(r"e:\aiproj\.cursor\debug.log", "a") as f:
-                    f.write(json.dumps(log_data2) + "\n")
-                # #endregion
-                self.reg_allocator.free_temp(temp)
+                # BUG FIX: cmpb returns -1 if left < right, else 0
+                # We want: 1 if left < right, else 0
+                # So: if temp_cmp != 0 (i.e., == -1), set result_reg = 1, else set result_reg = 0
+                one_reg = self.reg_allocator.get_temp_register()
+                while one_reg == result_reg or one_reg == temp_cmp:
+                    self.reg_allocator.free_temp(one_reg)
+                    one_reg = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(result_reg)}, 0")  # Initialize to 0
+                self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+                # If temp_cmp != 0 (i.e., == -1, meaning left < right), set result_reg = 1
+                self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(one_reg)}")
+                self.reg_allocator.free_temp(one_reg)
                 self.reg_allocator.free_temp(temp_cmp)
             else:
                 self.emit(f"cmpb {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
@@ -815,23 +781,6 @@ class CodeGenerator:
                 self.emit(f"mov {self.get_register_name(one_reg)}, 1")
                 # If result_reg != 0 (i.e., == -1, meaning left < right), set result_reg = 1
                 self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(one_reg)}")
-                # #region agent log
-                log_data3 = {
-                    "sessionId": "debug-session",
-                    "runId": "post-fix-v2",
-                    "hypothesisId": "A",
-                    "location": "codegen.py:810",
-                    "message": "Fixed: Correct conversion logic - cmovnz to convert -1 to 1",
-                    "data": {
-                        "result_reg": result_reg,
-                        "temp": temp,
-                        "one_reg": one_reg
-                    },
-                    "timestamp": int(__import__('time').time() * 1000)
-                }
-                with open(r"e:\aiproj\.cursor\debug.log", "a") as f:
-                    f.write(json.dumps(log_data3) + "\n")
-                # #endregion
                 self.reg_allocator.free_temp(temp)
                 self.reg_allocator.free_temp(one_reg)
         elif op.op == '>':
@@ -1058,11 +1007,6 @@ class CodeGenerator:
             self.emit(f"sub r:30, r:30, 1")  # Decrement stack pointer
             self.emit(f"lds [r:30], {self.get_register_name(temp_reg)}")  # Push parameter onto stack
             self.reg_allocator.free_temp(arg_reg)
-            # #region agent log
-            import json
-            with open(r'e:\aiproj\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"location":"codegen.py:975","message":"Parameter pushed to stack","data":{"param_index":i,"arg_reg":arg_reg,"arg_value":str(arg)},"timestamp":0,"sessionId":"debug-session","hypothesisId":"H2"}) + '\n')
-            # #endregion
         
         # Generate return address label
         return_addr_label = self.generate_label("ret_addr")
@@ -1292,40 +1236,7 @@ class CodeGenerator:
             
             # Condition check
             if stmt.condition:
-                # #region agent log
-                import json
-                log_data = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "B",
-                    "location": "codegen.py:1230",
-                    "message": "Generating for loop condition",
-                    "data": {
-                        "condition_type": type(stmt.condition).__name__,
-                        "end_label": end_label
-                    },
-                    "timestamp": int(__import__('time').time() * 1000)
-                }
-                with open(r"e:\aiproj\.cursor\debug.log", "a") as f:
-                    f.write(json.dumps(log_data) + "\n")
-                # #endregion
                 condition_reg = self.generate_expression(stmt.condition)
-                # #region agent log
-                log_data2 = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "B",
-                    "location": "codegen.py:1237",
-                    "message": "Condition expression generated, condition_reg value",
-                    "data": {
-                        "condition_reg": condition_reg,
-                        "end_label": end_label
-                    },
-                    "timestamp": int(__import__('time').time() * 1000)
-                }
-                with open(r"e:\aiproj\.cursor\debug.log", "a") as f:
-                    f.write(json.dumps(log_data2) + "\n")
-                # #endregion
                 zero_reg = self.reg_allocator.get_temp_register()
                 self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
                 

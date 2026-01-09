@@ -18,6 +18,8 @@ Runtime State:
 """
 
 from typing import Dict, Optional, List, Any, Tuple
+import json
+import os
 from parser import (
     Program, FunctionDef, Statement, Expression,
     Literal, Identifier, BinaryOp, UnaryOp, FunctionCall,
@@ -37,16 +39,12 @@ class Environment:
     """Represents a scope/environment for variable bindings."""
     
     def __init__(self, parent: Optional['Environment'] = None):
-<<<<<<< Current (Your changes)
         self.vars: Dict[str, int] = {}  # Обычные переменные и указатели
         self.arrays: Dict[str, List[int]] = {}  # Массивы
         self.variable_addresses: Dict[str, int] = {}  # Адреса переменных (для &)
         self.array_addresses: Dict[str, int] = {}  # Адреса массивов (базовый адрес)
         self.next_address: int = 1000  # Начальный адрес для выделения памяти
-=======
-        self.vars: Dict[str, int] = {}
         self.var_types: Dict[str, str] = {}  # Track variable types: 'uint32' or 'int32'
->>>>>>> Incoming (Background Agent changes)
         self.parent = parent
     
     def get(self, name: str) -> int:
@@ -333,7 +331,27 @@ class Interpreter:
         value = 0
         if decl.initializer:
             # Evaluate expression - we'll get the type from evaluate_expression later
-            value, expr_type = self.evaluate_expression_with_type(decl.initializer, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_var_decl_before_unpack","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:336","message":"Before unpacking evaluate_expression_with_type result","data":{"initializer_type":type(decl.initializer).__name__},"sessionId":"debug-session","runId":"run1","hypothesisId":"H4"})+"\n")
+            # #endregion
+            try:
+                result = self.evaluate_expression_with_type(decl.initializer, env)
+                # #region agent log
+                with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                    f.write(json.dumps({"id":"log_var_decl_after_call","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:336","message":"After calling evaluate_expression_with_type","data":{"result":result,"result_type":type(result).__name__,"is_tuple":isinstance(result,tuple),"result_len":len(result) if isinstance(result,(tuple,list)) else "N/A"},"sessionId":"debug-session","runId":"run1","hypothesisId":"H4"})+"\n")
+                # #endregion
+                value, expr_type = result
+                # #region agent log
+                with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                    f.write(json.dumps({"id":"log_var_decl_after_unpack","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:336","message":"After successful unpacking","data":{"value":value,"expr_type":expr_type},"sessionId":"debug-session","runId":"run1","hypothesisId":"H4"})+"\n")
+                # #endregion
+            except Exception as e:
+                # #region agent log
+                with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                    f.write(json.dumps({"id":"log_var_decl_unpack_error","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:336","message":"Unpacking error","data":{"error_type":type(e).__name__,"error_msg":str(e)},"sessionId":"debug-session","runId":"run1","hypothesisId":"H4"})+"\n")
+                # #endregion
+                raise
             # Convert if needed: if target type is int32, convert the value appropriately
             if var_type == 'int32':
                 if expr_type == 'uint32':
@@ -542,13 +560,40 @@ class Interpreter:
             return value, var_type
         
         elif isinstance(expr, ArrayAccess):
-            return self.evaluate_array_access(expr, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_array_access_entry","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:544","message":"ArrayAccess in evaluate_expression_with_type","data":{"expr_name":expr.name,"expr_type":type(expr).__name__},"sessionId":"debug-session","runId":"run1","hypothesisId":"H1"})+"\n")
+            # #endregion
+            result = self.evaluate_array_access(expr, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_array_access_return","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:545","message":"ArrayAccess return from evaluate_array_access","data":{"result":result,"result_type":type(result).__name__,"is_tuple":isinstance(result,tuple)},"sessionId":"debug-session","runId":"run1","hypothesisId":"H1"})+"\n")
+            # #endregion
+            return result
         
         elif isinstance(expr, AddressOf):
-            return self.evaluate_address_of(expr, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_address_of_entry","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:547","message":"AddressOf in evaluate_expression_with_type","data":{"operand_type":type(expr.operand).__name__},"sessionId":"debug-session","runId":"run1","hypothesisId":"H2"})+"\n")
+            # #endregion
+            result = self.evaluate_address_of(expr, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_address_of_return","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:548","message":"AddressOf return from evaluate_address_of","data":{"result":result,"result_type":type(result).__name__,"is_tuple":isinstance(result,tuple)},"sessionId":"debug-session","runId":"run1","hypothesisId":"H2"})+"\n")
+            # #endregion
+            return result
         
         elif isinstance(expr, Dereference):
-            return self.evaluate_dereference(expr, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_dereference_entry","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:550","message":"Dereference in evaluate_expression_with_type","data":{"operand_type":type(expr.operand).__name__},"sessionId":"debug-session","runId":"run1","hypothesisId":"H3"})+"\n")
+            # #endregion
+            result = self.evaluate_dereference(expr, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_dereference_return","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:551","message":"Dereference return from evaluate_dereference","data":{"result":result,"result_type":type(result).__name__,"is_tuple":isinstance(result,tuple)},"sessionId":"debug-session","runId":"run1","hypothesisId":"H3"})+"\n")
+            # #endregion
+            return result
         
         elif isinstance(expr, BinaryOp):
             return self.evaluate_binary_op_with_type(expr, env)
@@ -687,37 +732,97 @@ class Interpreter:
         
         return result, result_type
     
-    def evaluate_array_access(self, expr: ArrayAccess, env: Environment) -> int:
+    def evaluate_array_access(self, expr: ArrayAccess, env: Environment) -> Tuple[int, str]:
         """Evaluate array element access: arr[index]"""
+        # #region agent log
+        with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"id":"log_array_access_method_entry","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:735","message":"evaluate_array_access method entry","data":{"expr_name":expr.name},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H1"})+"\n")
+        # #endregion
         index = self.evaluate_expression(expr.index, env)
-        return env.get_array_element(expr.name, index)
+        value = env.get_array_element(expr.name, index)
+        # Get array element type - default to 'uint32' if not explicitly stored
+        # Arrays don't have explicit type tracking, so we use default 'uint32'
+        element_type = 'uint32'
+        # #region agent log
+        with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"id":"log_array_access_method_return","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:747","message":"evaluate_array_access method return","data":{"value":value,"element_type":element_type,"is_tuple":True},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H1"})+"\n")
+        # #endregion
+        return value, element_type
     
-    def evaluate_address_of(self, expr: AddressOf, env: Environment) -> int:
+    def evaluate_address_of(self, expr: AddressOf, env: Environment) -> Tuple[int, str]:
         """Evaluate address-of operator: &x"""
+        # #region agent log
+        with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"id":"log_address_of_method_entry","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:749","message":"evaluate_address_of method entry","data":{"operand_type":type(expr.operand).__name__},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H2"})+"\n")
+        # #endregion
         operand = expr.operand
+        # Address-of always returns a uint32 (addresses are unsigned 32-bit)
+        address_type = 'uint32'
         
         if isinstance(operand, Identifier):
             # &variable
-            return env.get_address(operand.name)
+            value = env.get_address(operand.name)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_address_of_method_return_ident","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:764","message":"evaluate_address_of returning for Identifier","data":{"value":value,"address_type":address_type,"is_tuple":True},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H2"})+"\n")
+            # #endregion
+            return value, address_type
         elif isinstance(operand, ArrayAccess):
             # &arr[i] - address of array element
             arr_name = operand.name
             index = self.evaluate_expression(operand.index, env)
             base_addr = env.get_address(arr_name)
             # Each element is 1 memory cell, so address = base + index
-            return (base_addr + index) & 0xFFFFFFFF
+            value = (base_addr + index) & 0xFFFFFFFF
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_address_of_method_return_array","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:777","message":"evaluate_address_of returning for ArrayAccess","data":{"value":value,"address_type":address_type,"is_tuple":True},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H2"})+"\n")
+            # #endregion
+            return value, address_type
         elif isinstance(operand, Dereference):
             # &*ptr - address that ptr points to (just the value of ptr)
-            return self.evaluate_expression(operand.operand, env)
+            value = self.evaluate_expression(operand.operand, env)
+            # #region agent log
+            with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"id":"log_address_of_method_return_deref","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:785","message":"evaluate_address_of returning for Dereference","data":{"value":value,"address_type":address_type,"is_tuple":True},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H2"})+"\n")
+            # #endregion
+            return value, address_type
         else:
             raise RuntimeError(f"Cannot take address of {type(operand)}")
     
-    def evaluate_dereference(self, expr: Dereference, env: Environment) -> int:
+    def evaluate_dereference(self, expr: Dereference, env: Environment) -> Tuple[int, str]:
         """Evaluate pointer dereference: *ptr"""
+        # #region agent log
+        with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"id":"log_dereference_method_entry","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:793","message":"evaluate_dereference method entry","data":{},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H3"})+"\n")
+        # #endregion
         # Get the address (value of the pointer)
         address = self.evaluate_expression(expr.operand, env)
         # Get value at that address
-        return env.get_value_at_address(address)
+        value = env.get_value_at_address(address)
+        # Determine the type of what's at the address
+        # We try to find the variable/array element at this address to get its type
+        deref_type = 'uint32'  # Default type
+        # Search for variable at this address to get its type
+        if hasattr(env, 'variable_addresses'):
+            for name, addr in env.variable_addresses.items():
+                if addr == address:
+                    deref_type = env.get_type(name) if hasattr(env, 'get_type') else 'uint32'
+                    break
+        # If not found as variable, check if it's an array element
+        if deref_type == 'uint32' and hasattr(env, 'array_addresses'):
+            for name, base_addr in env.array_addresses.items():
+                if name in env.arrays:
+                    arr = env.arrays[name]
+                    if base_addr <= address < base_addr + len(arr):
+                        # Array elements don't have explicit types, default to 'uint32'
+                        deref_type = 'uint32'
+                        break
+        # #region agent log
+        with open(r'e:\aiproj\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"id":"log_dereference_method_return","timestamp":int(__import__('time').time()*1000),"location":"interpreter.py:816","message":"evaluate_dereference method return","data":{"value":value,"address":address,"deref_type":deref_type,"is_tuple":True},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H3"})+"\n")
+        # #endregion
+        return value, deref_type
     
     def _error(self, msg: str):
         """Raise a runtime error."""

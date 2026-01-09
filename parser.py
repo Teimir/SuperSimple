@@ -535,15 +535,6 @@ class Parser:
             else:
                 break
         
-<<<<<<< Current (Your changes)
-        self.expect(TokenType.UINT32)
-        
-        # Check for pointer type: uint32* ptr
-        is_pointer = False
-        if self.current_token() and self.current_token().type == TokenType.MULTIPLY:
-            self.advance()  # consume *
-            is_pointer = True
-=======
         # Parse type (uint32 or int32)
         var_type = 'uint32'  # default
         if self.current_token().type == TokenType.UINT32:
@@ -554,7 +545,12 @@ class Parser:
             var_type = 'int32'
         else:
             raise SyntaxError(f"Expected uint32 or int32, got {self.current_token()} at line {self.current_token().line if self.current_token() else '?'}")
->>>>>>> Incoming (Background Agent changes)
+        
+        # Check for pointer type: uint32* ptr or int32* ptr
+        is_pointer = False
+        if self.current_token() and self.current_token().type == TokenType.MULTIPLY:
+            self.advance()  # consume *
+            is_pointer = True
         
         name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name")
         name = name_token.value

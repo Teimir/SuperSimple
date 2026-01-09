@@ -146,7 +146,8 @@ aiproj/
 │   ├── advanced/          # Advanced programming examples
 │   ├── complex_example/   # Complex example with functions
 │   ├── math_test/         # Math library testing
-│   └── uart_message/      # UART message examples
+│   ├── uart_message/      # UART message examples
+│   └── uart_number/       # UART number output examples
 │
 ├── self_tests/            # Unit tests
 │   ├── test_lexer.py

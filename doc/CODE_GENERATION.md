@@ -58,7 +58,11 @@ FASM assembly file
   
 - **Hardware Functions**:
   - GPIO (gpio_set, gpio_read, gpio_write)
-  - UART (uart_set_baud, uart_read, uart_write)
+  - UART (uart_set_baud, uart_get_status, uart_read, uart_write)
+  - Timer (timer_set_mode, timer_set_period, timer_start, timer_stop, timer_reset, timer_get_value, timer_expired)
+  - Delay (delay_ms, delay_us, delay_cycles)
+  - Interrupts (enable_interrupts, disable_interrupts)
+  - Bit manipulation (set_bit, clear_bit, toggle_bit, get_bit)
   
 - **Functions**:
   - Function definitions

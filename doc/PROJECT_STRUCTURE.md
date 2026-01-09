@@ -34,8 +34,9 @@ aiproj/
 │       ├── includes/        # Include directive examples
 │       ├── advanced/        # Advanced programming examples
 │       ├── complex_example/ # Complex example with functions
-│       ├── simple_return/   # Simple return example
-│       ├── test_example/    # Test example
+│       ├── math_test/       # Math library testing
+│       ├── uart_message/    # UART message examples
+│       ├── uart_number/     # UART number output examples
 │       └── README.md        # Test examples documentation
 │
 ├── Tests
@@ -87,8 +88,9 @@ aiproj/
 - **`test_examples/includes/`**: File inclusion examples
 - **`test_examples/advanced/`**: Complex programming patterns
 - **`test_examples/complex_example/`**: Complex example with functions
-- **`test_examples/simple_return/`**: Simple return example
-- **`test_examples/test_example/`**: Test example
+- **`test_examples/math_test/`**: Math library testing examples
+- **`test_examples/uart_message/`**: UART message output examples
+- **`test_examples/uart_number/`**: UART number output examples
 
 ### Tests
 

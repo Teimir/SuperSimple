@@ -26,7 +26,6 @@ Operator testing examples:
 Hardware-specific examples for MCU programming:
 - `gpio_blink.sc` - GPIO LED blink example
 - `uart_echo.sc` - UART echo example
-- `uart_message/test5.sc` - Complex UART message example
 - `timer_example.sc` - Timer usage example
 - `interrupt_example.sc` - Timer interrupt example
 - `bit_manipulation.sc` - Bit manipulation functions
@@ -61,9 +60,16 @@ Math library testing:
 Complex example combining multiple features:
 - `complex_example.sc` - Complex program with multiple features
 
-### `complex_uart/`
-Complex UART examples:
-- `test4.sc` - UART output with loops
+### `uart_message/`
+UART message output examples:
+- `test5.sc` - Complex UART message example
+
+### `uart_number/`
+UART number output examples:
+- `uart_number.sc` - Output a predefined number to UART (extracts digits using loops)
+- `uart_number_div.sc` - UART number output using division
+- `t.sc`, `t2.sc` - Test examples for UART number output
+- Various test files for debugging and development
 
 ## Running Examples
 

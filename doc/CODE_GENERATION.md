@@ -48,6 +48,10 @@ FASM assembly file
   
 - **Statements**:
   - Variable declarations
+  - Array declarations
+  - Pointer declarations
+  - Array element assignments
+  - Pointer dereference assignments
   - Assignments
   - Return statements
   - Blocks
@@ -121,6 +125,38 @@ FASM assembly file
 | `uart_set_baud(baud)` | `setu` | - |
 | `uart_read()` | `inu` | - |
 | `uart_write(data)` | `outu` | - |
+
+### Arrays and Pointers
+
+**Array Declaration:**
+- **Local arrays**: Allocated on stack using `sub r:30, r:30, size`
+- **Global arrays**: Allocated in data section with label and `dd 0` for each element
+
+**Array Access (`arr[index]`):**
+1. Calculate address: `base_addr + index` (each element = 1 memory cell)
+2. Load value: `lds result_reg, [addr_reg]`
+
+**Array Assignment (`arr[i] = value`):**
+1. Calculate address: `base_addr + index`
+2. Store value: `lds [addr_reg], value_reg`
+
+**Address-of (`&x`, `&arr[i]`):**
+- For variables: Get address from `variable_addresses` (label or stack offset)
+- For arrays: Get base address from `array_addresses`
+- For array elements: Calculate `base_addr + index`
+
+**Dereference (`*ptr`):**
+1. Evaluate pointer expression to get address in register
+2. Load value: `lds result_reg, [addr_reg]`
+
+**Pointer Assignment (`*ptr = value`):**
+1. Evaluate pointer expression to get address
+2. Store value: `lds [addr_reg], value_reg`
+
+**Pointer Arithmetic:**
+- `ptr + i`: `add result_reg, ptr_reg, i_reg` (each element = 1 memory cell)
+- `ptr - i`: `sub result_reg, ptr_reg, i_reg`
+- `ptr1 - ptr2`: `sub result_reg, ptr1_reg, ptr2_reg`
 
 ## Example Generated Code
 

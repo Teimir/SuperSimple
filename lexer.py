@@ -65,6 +65,8 @@ class TokenType(Enum):
     RPAREN = "RPAREN"
     LBRACE = "LBRACE"
     RBRACE = "RBRACE"
+    LBRACKET = "LBRACKET"  # [
+    RBRACKET = "RBRACKET"  # ]
     
     # Special
     EOF = "EOF"
@@ -327,6 +329,8 @@ class Lexer:
                 ')': TokenType.RPAREN,
                 '{': TokenType.LBRACE,
                 '}': TokenType.RBRACE,
+                '[': TokenType.LBRACKET,
+                ']': TokenType.RBRACKET,
             }
             
             if char in token_map:

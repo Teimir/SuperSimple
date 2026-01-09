@@ -9,7 +9,9 @@ from parser import (
     Program, FunctionDef, Statement, Expression,
     Literal, Identifier, BinaryOp, UnaryOp, FunctionCall,
     VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
-    Block, FunctionCallStmt, Increment, Decrement
+    Block, FunctionCallStmt, Increment, Decrement,
+    ArrayDecl, ArrayAccess, PointerDecl, AddressOf, Dereference,
+    ArrayAssignment, PointerAssignment
 )
 
 
@@ -66,6 +68,13 @@ class CodeGenerator:
         self.function_labels: Dict[str, str] = {}
         self.current_function: Optional[str] = None
         self._has_explicit_return = False  # Track if current function has explicit return
+        
+        # Memory management
+        self.array_addresses: Dict[str, int] = {}  # array name -> base address (stack offset or label)
+        self.variable_addresses: Dict[str, int] = {}  # var name -> address (stack offset or label)
+        self.stack_offset: int = 0  # Current offset from base stack address (r30)
+        self.data_section: List[str] = []  # Global data section
+        self.global_data_labels: Dict[str, str] = {}  # Global variable/array name -> label
         
     def generate_label(self, prefix: str = "L") -> str:
         """Generate a unique label."""
@@ -153,6 +162,15 @@ class CodeGenerator:
             else:
                 self.function_labels[func.name] = f"func_{func.name}"
         
+        # Generate global variables and arrays first
+        for global_var in self.program.global_vars:
+            if isinstance(global_var, ArrayDecl):
+                self.generate_array_decl(global_var)
+            elif isinstance(global_var, PointerDecl):
+                self.generate_pointer_decl(global_var)
+            elif isinstance(global_var, VarDecl):
+                self.generate_var_decl(global_var)
+        
         # Generate main function first (entry point)
         main_func = None
         other_funcs = []
@@ -175,6 +193,12 @@ class CodeGenerator:
         for func in other_funcs:
             self.generate_function(func)
         
+        # Generate data section for global arrays and variables
+        if self.data_section:
+            self.code.append("")
+            self.code.append("; Data section")
+            self.code.extend(self.data_section)
+        
         return "\n".join(self.code)
     
     def generate_function(self, func: FunctionDef):
@@ -183,6 +207,10 @@ class CodeGenerator:
         self.current_function = func.name
         old_allocator = self.reg_allocator
         self.reg_allocator = RegisterAllocator()
+        
+        # Save and reset stack offset for this function
+        old_stack_offset = self.stack_offset
+        self.stack_offset = 0
         
         # Function label
         self.code.append("")
@@ -222,16 +250,25 @@ class CodeGenerator:
         
         # Reset flag
         self._has_explicit_return = False
-        
+
         self.current_function = old_func
         self.reg_allocator = old_allocator
+        self.stack_offset = old_stack_offset
     
     def generate_statement(self, stmt: Statement):
         """Generate assembly code for a statement."""
         if isinstance(stmt, VarDecl):
             self.generate_var_decl(stmt)
+        elif isinstance(stmt, ArrayDecl):
+            self.generate_array_decl(stmt)
+        elif isinstance(stmt, PointerDecl):
+            self.generate_pointer_decl(stmt)
         elif isinstance(stmt, Assignment):
             self.generate_assignment(stmt)
+        elif isinstance(stmt, ArrayAssignment):
+            self.generate_array_assignment(stmt)
+        elif isinstance(stmt, PointerAssignment):
+            self.generate_pointer_assignment(stmt)
         elif isinstance(stmt, Return):
             self.generate_return(stmt)
         elif isinstance(stmt, IfStmt):
@@ -273,25 +310,55 @@ class CodeGenerator:
     
     def generate_var_decl(self, decl: VarDecl):
         """Generate code for variable declaration."""
+        # Check if this is a global variable
+        is_global = (self.current_function is None)
+        
         if decl.is_register:
             # Register variable - just allocate it
             reg_num = int(decl.name[1:])  # Extract number from "r0", "r1", etc.
             if reg_num < 0 or reg_num > 30:
                 raise RuntimeError(f"Invalid register name: {decl.name}")
             self.reg_allocator.allocated[decl.name] = reg_num
+            # Initialize if needed
+            if decl.initializer:
+                value_reg = self.generate_expression(decl.initializer)
+                if value_reg != reg_num:
+                    self.emit(f"mov {self.get_register_name(reg_num)}, {self.get_register_name(value_reg)}")
+                    self.reg_allocator.free_temp(value_reg)
+            return
         
-        # Allocate register for variable
-        reg_num = self.reg_allocator.allocate(decl.name)
-        
-        # Initialize if needed
-        if decl.initializer:
-            value_reg = self.generate_expression(decl.initializer)
-            if value_reg != reg_num:
-                self.emit(f"mov {self.get_register_name(reg_num)}, {self.get_register_name(value_reg)}")
-                self.reg_allocator.free_temp(value_reg)
+        if is_global:
+            # Global variable - allocate in data section
+            label = f"var_{decl.name}"
+            self.global_data_labels[decl.name] = label
+            self.data_section.append(f"{label}:")
+            if decl.initializer:
+                if isinstance(decl.initializer, Literal):
+                    self.data_section.append(f"\tdd {decl.initializer.value}")
+                else:
+                    # For non-constant initializers, we'd need runtime initialization
+                    # For now, just initialize to 0
+                    self.data_section.append(f"\tdd 0")
+            else:
+                self.data_section.append(f"\tdd 0")
+            self.variable_addresses[decl.name] = label
         else:
-            # Initialize to 0
-            self.emit(f"mov {self.get_register_name(reg_num)}, 0")
+            # Local variable - allocate register
+            reg_num = self.reg_allocator.allocate(decl.name)
+            
+            # Track address (stack offset)
+            self.variable_addresses[decl.name] = self.stack_offset
+            self.stack_offset += 1
+            
+            # Initialize if needed
+            if decl.initializer:
+                value_reg = self.generate_expression(decl.initializer)
+                if value_reg != reg_num:
+                    self.emit(f"mov {self.get_register_name(reg_num)}, {self.get_register_name(value_reg)}")
+                    self.reg_allocator.free_temp(value_reg)
+            else:
+                # Initialize to 0
+                self.emit(f"mov {self.get_register_name(reg_num)}, 0")
     
     def generate_assignment(self, assign: Assignment):
         """Generate code for assignment."""
@@ -320,6 +387,12 @@ class CodeGenerator:
             return self.generate_literal(expr)
         elif isinstance(expr, Identifier):
             return self.generate_identifier(expr)
+        elif isinstance(expr, ArrayAccess):
+            return self.generate_array_access(expr)
+        elif isinstance(expr, AddressOf):
+            return self.generate_address_of(expr)
+        elif isinstance(expr, Dereference):
+            return self.generate_dereference(expr)
         elif isinstance(expr, BinaryOp):
             return self.generate_binary_op(expr)
         elif isinstance(expr, UnaryOp):
@@ -743,6 +816,261 @@ class CodeGenerator:
         """Generate code for block."""
         for stmt in block.statements:
             self.generate_statement(stmt)
+    
+    def generate_array_decl(self, decl: ArrayDecl):
+        """Generate code for array declaration."""
+        # Evaluate size (must be a literal constant)
+        if not isinstance(decl.size, Literal):
+            raise RuntimeError(f"Array size must be a constant literal, got {type(decl.size)}")
+        size = decl.size.value
+        if size <= 0:
+            raise RuntimeError(f"Array size must be positive, got {size}")
+        
+        # Check if this is a global array (declared outside functions)
+        is_global = (self.current_function is None)
+        
+        if is_global:
+            # Global array - allocate in data section
+            label = f"array_{decl.name}"
+            self.global_data_labels[decl.name] = label
+            self.data_section.append(f"{label}:")
+            # Initialize with values or zeros
+            if decl.initializer:
+                # Initialize with provided values
+                for i, init_expr in enumerate(decl.initializer):
+                    if isinstance(init_expr, Literal):
+                        self.data_section.append(f"\tdd {init_expr.value}")
+                    else:
+                        # For non-constant initializers, use 0 (would need runtime init)
+                        self.data_section.append(f"\tdd 0")
+                # Fill remaining elements with zeros
+                for _ in range(size - len(decl.initializer)):
+                    self.data_section.append(f"\tdd 0")
+            else:
+                # Initialize with zeros
+                for _ in range(size):
+                    self.data_section.append(f"\tdd 0")
+            self.array_addresses[decl.name] = label  # Store label name for address calculation
+        else:
+            # Local array - allocate on stack
+            # Allocate space on stack: sub r:30, r:30, size
+            self.emit_comment(f"Allocate array {decl.name}[{size}] on stack")
+            self.emit(f"sub r:30, r:30, {size}")
+            
+            # Store base address offset for this array
+            self.array_addresses[decl.name] = self.stack_offset
+            self.stack_offset += size
+            
+            # Initialize array elements if initializer provided
+            if decl.initializer:
+                # After "sub r:30, r:30, size", r:30 points to the base of the array
+                # We'll compute address from r:30 directly for each element to avoid register conflicts
+                
+                # Initialize each element
+                for i, init_expr in enumerate(decl.initializer):
+                    value_reg = self.generate_expression(init_expr)
+                    # Calculate address of element i
+                    # Base address is r:30 (after sub r:30, r:30, size)
+                    addr_reg = self.reg_allocator.get_temp_register()
+                    
+                    if i == 0:
+                        # First element is at base address (r:30)
+                        self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+                    else:
+                        # Subsequent elements: r:30 + index
+                        self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+                        index_reg = self.reg_allocator.get_temp_register()
+                        self.emit(f"mov {self.get_register_name(index_reg)}, {i}")
+                        self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
+                        self.reg_allocator.free_temp(index_reg)
+                    
+                    # Store value: lds [addr_reg], value_reg
+                    self.emit(f"lds [{self.get_register_name(addr_reg)}], {self.get_register_name(value_reg)}")
+                    self.reg_allocator.free_temp(addr_reg)
+                    self.reg_allocator.free_temp(value_reg)
+    
+    def generate_pointer_decl(self, decl: PointerDecl):
+        """Generate code for pointer declaration."""
+        # Allocate register for pointer (stores address)
+        reg_num = self.reg_allocator.allocate(decl.name)
+        
+        if decl.initializer:
+            # Evaluate initializer (should be AddressOf expression)
+            addr_reg = self.generate_expression(decl.initializer)
+            if addr_reg != reg_num:
+                self.emit(f"mov {self.get_register_name(reg_num)}, {self.get_register_name(addr_reg)}")
+                self.reg_allocator.free_temp(addr_reg)
+        else:
+            # Initialize to 0 (null pointer)
+            self.emit(f"mov {self.get_register_name(reg_num)}, 0")
+    
+    def generate_array_access(self, expr: ArrayAccess) -> int:
+        """Generate code for array element access: arr[index]"""
+        # Evaluate index
+        index_reg = self.generate_expression(expr.index)
+        
+        # Get base address
+        if expr.name in self.array_addresses:
+            base_addr = self.array_addresses[expr.name]
+            result_reg = self.reg_allocator.get_temp_register()
+            addr_reg = self.reg_allocator.get_temp_register()
+            
+            # Calculate address: base + index (each element = 1 memory cell)
+            if isinstance(base_addr, str):
+                # Global array - use label address
+                self.emit(f"mov {self.get_register_name(addr_reg)}, {base_addr} addr")
+            else:
+                # Local array - base is offset from r30
+                # Address = r30 + base_offset + index
+                self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+                if base_addr > 0:
+                    offset_reg = self.reg_allocator.get_temp_register()
+                    self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
+                    self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(offset_reg)}")
+                    self.reg_allocator.free_temp(offset_reg)
+            
+            # Add index
+            self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
+            
+            # Load value: lds result_reg, [addr_reg]
+            self.emit(f"lds {self.get_register_name(result_reg)}, [{self.get_register_name(addr_reg)}]")
+            
+            self.reg_allocator.free_temp(addr_reg)
+            self.reg_allocator.free_temp(index_reg)
+            return result_reg
+        else:
+            raise RuntimeError(f"Array {expr.name} not found")
+    
+    def generate_address_of(self, expr: AddressOf) -> int:
+        """Generate code for address-of operator: &x"""
+        operand = expr.operand
+        result_reg = self.reg_allocator.get_temp_register()
+        
+        if isinstance(operand, Identifier):
+            # &variable
+            if operand.name in self.variable_addresses:
+                addr = self.variable_addresses[operand.name]
+                if isinstance(addr, str):
+                    # Global variable - use label
+                    self.emit(f"mov {self.get_register_name(result_reg)}, {addr} addr")
+                else:
+                    # Local variable - calculate address from r30
+                    self.emit(f"mov {self.get_register_name(result_reg)}, r:30")
+                    if addr > 0:
+                        offset_reg = self.reg_allocator.get_temp_register()
+                        self.emit(f"mov {self.get_register_name(offset_reg)}, {addr}")
+                        self.emit(f"add {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(offset_reg)}")
+                        self.reg_allocator.free_temp(offset_reg)
+            elif operand.name in self.array_addresses:
+                # &array (base address)
+                base_addr = self.array_addresses[operand.name]
+                if isinstance(base_addr, str):
+                    self.emit(f"mov {self.get_register_name(result_reg)}, {base_addr} addr")
+                else:
+                    self.emit(f"mov {self.get_register_name(result_reg)}, r:30")
+                    if base_addr > 0:
+                        offset_reg = self.reg_allocator.get_temp_register()
+                        self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
+                        self.emit(f"add {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(offset_reg)}")
+                        self.reg_allocator.free_temp(offset_reg)
+            else:
+                raise RuntimeError(f"Variable or array {operand.name} not found for address-of")
+        elif isinstance(operand, ArrayAccess):
+            # &arr[i] - address of array element
+            arr_name = operand.name
+            index_reg = self.generate_expression(operand.index)
+            
+            if arr_name in self.array_addresses:
+                base_addr = self.array_addresses[arr_name]
+                addr_reg = self.reg_allocator.get_temp_register()
+                
+                # Calculate base address
+                if isinstance(base_addr, str):
+                    self.emit(f"mov {self.get_register_name(addr_reg)}, {base_addr} addr")
+                else:
+                    self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+                    if base_addr > 0:
+                        offset_reg = self.reg_allocator.get_temp_register()
+                        self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
+                        self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(offset_reg)}")
+                        self.reg_allocator.free_temp(offset_reg)
+                
+                # Add index
+                self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
+                self.emit(f"mov {self.get_register_name(result_reg)}, {self.get_register_name(addr_reg)}")
+                
+                self.reg_allocator.free_temp(addr_reg)
+                self.reg_allocator.free_temp(index_reg)
+            else:
+                raise RuntimeError(f"Array {arr_name} not found")
+        elif isinstance(operand, Dereference):
+            # &*ptr - just the value of ptr (address it points to)
+            return self.generate_expression(operand.operand)
+        else:
+            raise RuntimeError(f"Cannot take address of {type(operand)}")
+        
+        return result_reg
+    
+    def generate_dereference(self, expr: Dereference) -> int:
+        """Generate code for pointer dereference: *ptr"""
+        # Evaluate operand to get address
+        addr_reg = self.generate_expression(expr.operand)
+        
+        # Load value from address: lds result_reg, [addr_reg]
+        result_reg = self.reg_allocator.get_temp_register()
+        self.emit(f"lds {self.get_register_name(result_reg)}, [{self.get_register_name(addr_reg)}]")
+        
+        self.reg_allocator.free_temp(addr_reg)
+        return result_reg
+    
+    def generate_array_assignment(self, assign: ArrayAssignment):
+        """Generate code for array element assignment: arr[i] = value"""
+        # Evaluate index and value
+        index_reg = self.generate_expression(assign.index)
+        value_reg = self.generate_expression(assign.value)
+        
+        # Get base address
+        if assign.name in self.array_addresses:
+            base_addr = self.array_addresses[assign.name]
+            addr_reg = self.reg_allocator.get_temp_register()
+            
+            # Calculate address: base + index
+            if isinstance(base_addr, str):
+                # Global array
+                self.emit(f"mov {self.get_register_name(addr_reg)}, {base_addr} addr")
+            else:
+                # Local array
+                self.emit(f"mov {self.get_register_name(addr_reg)}, r:30")
+                if base_addr > 0:
+                    offset_reg = self.reg_allocator.get_temp_register()
+                    self.emit(f"mov {self.get_register_name(offset_reg)}, {base_addr}")
+                    self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(offset_reg)}")
+                    self.reg_allocator.free_temp(offset_reg)
+            
+            # Add index
+            self.emit(f"add {self.get_register_name(addr_reg)}, {self.get_register_name(addr_reg)}, {self.get_register_name(index_reg)}")
+            
+            # Store value: lds [addr_reg], value_reg
+            self.emit(f"lds [{self.get_register_name(addr_reg)}], {self.get_register_name(value_reg)}")
+            
+            self.reg_allocator.free_temp(addr_reg)
+            self.reg_allocator.free_temp(index_reg)
+            self.reg_allocator.free_temp(value_reg)
+        else:
+            raise RuntimeError(f"Array {assign.name} not found")
+    
+    def generate_pointer_assignment(self, assign: PointerAssignment):
+        """Generate code for pointer dereference assignment: *ptr = value"""
+        # Evaluate address (value of pointer)
+        addr_reg = self.generate_expression(assign.operand)
+        # Evaluate value
+        value_reg = self.generate_expression(assign.value)
+        
+        # Store value at address: lds [addr_reg], value_reg
+        self.emit(f"lds [{self.get_register_name(addr_reg)}], {self.get_register_name(value_reg)}")
+        
+        self.reg_allocator.free_temp(addr_reg)
+        self.reg_allocator.free_temp(value_reg)
     
     def generate_increment(self, stmt: Increment):
         """Generate code for increment statement."""

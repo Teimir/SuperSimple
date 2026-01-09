@@ -106,6 +106,27 @@ class Assignment(Statement):
         return f"Assignment({self.name}, {self.value})"
 
 
+class ArrayAssignment(Statement):
+    """Array element assignment: arr[i] = value"""
+    def __init__(self, name: str, index: Expression, value: Expression):
+        self.name = name
+        self.index = index
+        self.value = value
+    
+    def __repr__(self):
+        return f"ArrayAssignment({self.name}, {self.index}, {self.value})"
+
+
+class PointerAssignment(Statement):
+    """Pointer dereference assignment: *ptr = value"""
+    def __init__(self, operand: Expression, value: Expression):
+        self.operand = operand  # Expression that evaluates to an address
+        self.value = value
+    
+    def __repr__(self):
+        return f"PointerAssignment({self.operand}, {self.value})"
+
+
 class Return(Statement):
     def __init__(self, value: Optional[Expression] = None):
         self.value = value
@@ -182,6 +203,77 @@ class Decrement(Statement):
     def __repr__(self):
         prefix_str = "prefix" if self.is_prefix else "postfix"
         return f"Decrement({self.name}, {prefix_str})"
+
+
+class ArrayDecl(Statement):
+    """Array declaration: uint32 arr[10]; or uint32 arr[5] = {1, 2, 3, 4, 5};"""
+    def __init__(self, name: str, size: Expression, initializer: Optional[List[Expression]] = None,
+                 is_register: bool = False, is_volatile: bool = False):
+        self.name = name
+        self.size = size  # Должно быть Literal (константа)
+        self.initializer = initializer  # Список выражений для инициализации
+        self.is_register = is_register
+        self.is_volatile = is_volatile
+    
+    def __repr__(self):
+        attrs = []
+        if self.is_register:
+            attrs.append("register")
+        if self.is_volatile:
+            attrs.append("volatile")
+        attr_str = ", " + ", ".join(attrs) if attrs else ""
+        if self.initializer:
+            return f"ArrayDecl({self.name}, {self.size}, {self.initializer}{attr_str})"
+        return f"ArrayDecl({self.name}, {self.size}{attr_str})"
+
+
+class ArrayAccess(Expression):
+    """Array element access: arr[index]"""
+    def __init__(self, name: str, index: Expression):
+        self.name = name
+        self.index = index
+    
+    def __repr__(self):
+        return f"ArrayAccess({self.name}, {self.index})"
+
+
+class PointerDecl(Statement):
+    """Pointer declaration: uint32* ptr;"""
+    def __init__(self, name: str, initializer: Optional[Expression] = None,
+                 is_register: bool = False, is_volatile: bool = False):
+        self.name = name
+        self.initializer = initializer  # Может быть AddressOf или другой указатель
+        self.is_register = is_register
+        self.is_volatile = is_volatile
+    
+    def __repr__(self):
+        attrs = []
+        if self.is_register:
+            attrs.append("register")
+        if self.is_volatile:
+            attrs.append("volatile")
+        attr_str = ", " + ", ".join(attrs) if attrs else ""
+        if self.initializer:
+            return f"PointerDecl({self.name}, {self.initializer}{attr_str})"
+        return f"PointerDecl({self.name}{attr_str})"
+
+
+class AddressOf(Expression):
+    """Address-of operator: &x"""
+    def __init__(self, operand: Expression):
+        self.operand = operand  # Identifier, ArrayAccess, или Dereference
+    
+    def __repr__(self):
+        return f"AddressOf({self.operand})"
+
+
+class Dereference(Expression):
+    """Pointer dereference: *ptr"""
+    def __init__(self, operand: Expression):
+        self.operand = operand  # Identifier (указатель) или AddressOf
+    
+    def __repr__(self):
+        return f"Dereference({self.operand})"
 
 
 class FunctionDef(ASTNode):
@@ -289,10 +381,34 @@ class Parser:
         self.expect(TokenType.LPAREN)
         params = []
         if self.current_token() and self.current_token().type != TokenType.RPAREN:
-            params.append(self.expect(TokenType.IDENTIFIER, "Expected parameter name").value)
+            # Parse first parameter (could be uint32* ptr or just identifier)
+            # For now, just parse identifier - parameters are implicitly uint32 or uint32*
+            # The type info is not stored in FunctionDef (parameters are just names)
+            # Check if it's a pointer type: uint32* param
+            if self.current_token().type == TokenType.UINT32:
+                self.advance()
+                is_ptr_param = False
+                if self.current_token() and self.current_token().type == TokenType.MULTIPLY:
+                    self.advance()  # consume *
+                    is_ptr_param = True
+                param_name = self.expect(TokenType.IDENTIFIER, "Expected parameter name").value
+                params.append(param_name)
+            else:
+                # Just identifier (backward compatibility - params are implicitly uint32)
+                params.append(self.expect(TokenType.IDENTIFIER, "Expected parameter name").value)
             while self.current_token() and self.current_token().type == TokenType.COMMA:
                 self.advance()
-                params.append(self.expect(TokenType.IDENTIFIER, "Expected parameter name").value)
+                # Parse next parameter
+                if self.current_token().type == TokenType.UINT32:
+                    self.advance()
+                    is_ptr_param = False
+                    if self.current_token() and self.current_token().type == TokenType.MULTIPLY:
+                        self.advance()  # consume *
+                        is_ptr_param = True
+                    param_name = self.expect(TokenType.IDENTIFIER, "Expected parameter name").value
+                    params.append(param_name)
+                else:
+                    params.append(self.expect(TokenType.IDENTIFIER, "Expected parameter name").value)
         self.expect(TokenType.RPAREN)
         
         # Interrupt functions cannot have parameters
@@ -361,6 +477,13 @@ class Parser:
                 # Create a statement wrapper for function calls
                 # We'll use a special Statement type for this
                 return FunctionCallStmt(call)
+            elif next_token and next_token.type == TokenType.LBRACKET:
+                # Could be array assignment: arr[i] = value
+                # Check if after [index] there's an =
+                peek2 = self.peek_token(2)  # Skip identifier and [
+                # We need to find the = after the ]
+                # For now, just try to parse as assignment - parse_assignment will handle it
+                return self.parse_assignment()
             elif next_token and next_token.type == TokenType.ASSIGN:
                 # Assignment
                 return self.parse_assignment()
@@ -377,10 +500,17 @@ class Parser:
                 self.expect(TokenType.SEMICOLON)
                 return Decrement(name_token.value, is_prefix=False)
         
+        # Check for pointer dereference assignment: *ptr = value
+        if token.type == TokenType.MULTIPLY:
+            next_token = self.peek_token()
+            if next_token:
+                # Could be *ptr = value
+                return self.parse_assignment()
+        
         raise SyntaxError(f"Unexpected token in statement: {token} at line {token.line}")
     
-    def parse_var_decl(self) -> VarDecl:
-        """Parse a variable declaration."""
+    def parse_var_decl(self):
+        """Parse a variable declaration (can be VarDecl, ArrayDecl, or PointerDecl)."""
         # Check for register, volatile, or interrupt keywords
         is_register = False
         is_volatile = False
@@ -400,8 +530,49 @@ class Parser:
                 break
         
         self.expect(TokenType.UINT32)
+        
+        # Check for pointer type: uint32* ptr
+        is_pointer = False
+        if self.current_token() and self.current_token().type == TokenType.MULTIPLY:
+            self.advance()  # consume *
+            is_pointer = True
+        
         name_token = self.expect(TokenType.IDENTIFIER, "Expected variable name")
         name = name_token.value
+        
+        # Check for array declaration: uint32 arr[10] or uint32* arr[10]
+        if self.current_token() and self.current_token().type == TokenType.LBRACKET:
+            self.advance()  # consume [
+            size_expr = self.parse_expression()
+            self.expect(TokenType.RBRACKET)
+            
+            # Check for array initializer: uint32 arr[5] = {1, 2, 3, 4, 5};
+            array_initializer = None
+            if self.current_token() and self.current_token().type == TokenType.ASSIGN:
+                self.advance()  # consume =
+                self.expect(TokenType.LBRACE)  # expect {
+                array_initializer = []
+                if self.current_token() and self.current_token().type != TokenType.RBRACE:
+                    # Parse first value
+                    array_initializer.append(self.parse_expression())
+                    # Parse remaining values
+                    while self.current_token() and self.current_token().type == TokenType.COMMA:
+                        self.advance()  # consume ,
+                        array_initializer.append(self.parse_expression())
+                self.expect(TokenType.RBRACE)  # expect }
+            
+            self.expect(TokenType.SEMICOLON)
+            return ArrayDecl(name, size_expr, array_initializer, is_register=is_register, is_volatile=is_volatile)
+        
+        # If pointer type, return PointerDecl
+        if is_pointer:
+            initializer = None
+            if self.current_token() and self.current_token().type == TokenType.ASSIGN:
+                self.advance()
+                initializer = self.parse_expression()
+            
+            self.expect(TokenType.SEMICOLON)
+            return PointerDecl(name, initializer, is_register=is_register, is_volatile=is_volatile)
         
         # If register, parse register number from name (e.g., r0, r1, ..., r31)
         if is_register:
@@ -423,14 +594,42 @@ class Parser:
         self.expect(TokenType.SEMICOLON)
         return VarDecl(name, initializer, is_register=is_register, is_volatile=is_volatile, register_num=register_num)
     
-    def parse_assignment(self) -> Assignment:
-        """Parse an assignment statement."""
-        name_token = self.expect(TokenType.IDENTIFIER)
-        name = name_token.value
-        self.expect(TokenType.ASSIGN)
-        value = self.parse_expression()
-        self.expect(TokenType.SEMICOLON)
-        return Assignment(name, value)
+    def parse_assignment(self):
+        """Parse an assignment statement (can be Assignment, ArrayAssignment, or PointerAssignment)."""
+        token = self.current_token()
+        if not token:
+            raise SyntaxError("Unexpected end of file in assignment")
+        
+        # Check if this is pointer dereference assignment: *ptr = value
+        if token.type == TokenType.MULTIPLY:
+            self.advance()  # consume *
+            operand = self.parse_expression()  # Parse the pointer expression
+            self.expect(TokenType.ASSIGN)
+            value = self.parse_expression()
+            self.expect(TokenType.SEMICOLON)
+            return PointerAssignment(operand, value)
+        
+        # Check if this is array assignment: arr[i] = value
+        if token.type == TokenType.IDENTIFIER:
+            name_token = self.advance()
+            name = name_token.value
+            if self.current_token() and self.current_token().type == TokenType.LBRACKET:
+                # Array assignment: arr[i] = value
+                self.advance()  # consume [
+                index = self.parse_expression()
+                self.expect(TokenType.RBRACKET)
+                self.expect(TokenType.ASSIGN)
+                value = self.parse_expression()
+                self.expect(TokenType.SEMICOLON)
+                return ArrayAssignment(name, index, value)
+            else:
+                # Regular assignment
+                self.expect(TokenType.ASSIGN)
+                value = self.parse_expression()
+                self.expect(TokenType.SEMICOLON)
+                return Assignment(name, value)
+        else:
+            raise SyntaxError(f"Expected identifier or * in assignment at line {token.line if token else '?'}")
     
     def parse_prefix_increment(self) -> Increment:
         """Parse a prefix increment statement (++x)."""
@@ -651,11 +850,48 @@ class Parser:
     
     def parse_unary(self) -> Expression:
         """Parse unary expressions."""
+        # Check for address-of (&) operator
+        if self.current_token() and self.current_token().type == TokenType.BITWISE_AND:
+            # &x - address-of operator
+            self.advance()  # consume &
+            operand = self.parse_unary()  # Recursively parse operand (supports &*ptr, etc.)
+            return AddressOf(operand)
+        
+        # Check for dereference (*) operator
+        if self.current_token() and self.current_token().type == TokenType.MULTIPLY:
+            # *ptr - dereference operator
+            self.advance()  # consume *
+            operand = self.parse_unary()  # Recursively parse operand (supports **ptr, etc.)
+            return Dereference(operand)
+        
         if self.current_token() and self.current_token().type in [TokenType.NOT, TokenType.MINUS]:
             op = self.advance()
             operand = self.parse_unary()
             return UnaryOp(op.value, operand)
-        return self.parse_primary()
+        return self.parse_postfix()
+    
+    def parse_postfix(self) -> Expression:
+        """Parse postfix expressions (array access, etc.)."""
+        expr = self.parse_primary()
+        
+        # Handle postfix array access: arr[i]
+        while self.current_token() and self.current_token().type == TokenType.LBRACKET:
+            self.advance()  # consume [
+            index = self.parse_expression()
+            self.expect(TokenType.RBRACKET)
+            if isinstance(expr, Identifier):
+                expr = ArrayAccess(expr.name, index)
+            elif isinstance(expr, ArrayAccess):
+                # Nested array access or pointer arithmetic result
+                # For now, treat as array access of the result
+                # This will be handled properly when we add pointer support
+                expr = ArrayAccess(expr.name, index)
+            else:
+                # This is for pointer arithmetic like (ptr + i)[j] or *ptr[i]
+                # For now, raise an error - will be handled when we add full pointer support
+                raise SyntaxError(f"Array access on non-identifier expression at line {self.current_token().line if self.current_token() else '?'}")
+        
+        return expr
     
     def parse_primary(self) -> Expression:
         """Parse primary expressions."""

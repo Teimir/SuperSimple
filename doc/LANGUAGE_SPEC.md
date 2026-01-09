@@ -13,6 +13,8 @@ This is a simple, C-style programming language with a minimal feature set. The l
 - **Control Flow**: `for` and `while` loops
 - **Expressions**: Arithmetic, logical, and bitwise operations
 - **Statements**: Variable declarations, assignments, function calls, and control flow
+- **Arrays**: One-dimensional arrays of `uint32` values
+- **Pointers**: Pointers to `uint32` values with address-of and dereference operators
 - **File Includes**: `#include` directive for modular code organization
 - **Hardware Support**: Register access, GPIO, UART, Timer operations
 - **Interrupts**: Interrupt service routines (ISRs)
@@ -419,7 +421,30 @@ function main() {
 }
 ```
 
-### Example 7: Using Include Directives
+### Example 7: Array Initialization
+
+Arrays can be initialized with values when declared:
+
+```c
+function main() {
+    // Initialize array with values
+    uint32 arr[5] = {10, 20, 30, 40, 50};
+    
+    // Access initialized values
+    uint32 sum = arr[0] + arr[1] + arr[2];
+    
+    return sum;  // returns 60
+}
+```
+
+**Partial Initialization:**
+If fewer values are provided than the array size, remaining elements are zero-initialized:
+
+```c
+uint32 arr[8] = {1, 2, 3};  // arr = {1, 2, 3, 0, 0, 0, 0, 0}
+```
+
+### Example 8: Using Include Directives
 
 ```c
 // File: math_lib.sc

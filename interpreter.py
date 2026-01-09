@@ -22,7 +22,9 @@ from parser import (
     Program, FunctionDef, Statement, Expression,
     Literal, Identifier, BinaryOp, UnaryOp, FunctionCall,
     VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
-    Block, FunctionCallStmt, Increment, Decrement
+    Block, FunctionCallStmt, Increment, Decrement,
+    ArrayDecl, ArrayAccess, PointerDecl, AddressOf, Dereference,
+    ArrayAssignment, PointerAssignment
 )
 
 
@@ -35,7 +37,11 @@ class Environment:
     """Represents a scope/environment for variable bindings."""
     
     def __init__(self, parent: Optional['Environment'] = None):
-        self.vars: Dict[str, int] = {}
+        self.vars: Dict[str, int] = {}  # Обычные переменные и указатели
+        self.arrays: Dict[str, List[int]] = {}  # Массивы
+        self.variable_addresses: Dict[str, int] = {}  # Адреса переменных (для &)
+        self.array_addresses: Dict[str, int] = {}  # Адреса массивов (базовый адрес)
+        self.next_address: int = 1000  # Начальный адрес для выделения памяти
         self.parent = parent
     
     def get(self, name: str) -> int:
@@ -65,6 +71,113 @@ class Environment:
         if self.parent:
             return self.parent.assign(name, value)
         raise RuntimeError(f"Undefined variable: {name}")
+    
+    def declare_array(self, name: str, size: int) -> int:
+        """Declare an array and return its base address."""
+        if size <= 0:
+            raise RuntimeError(f"Array size must be positive, got {size}")
+        # Allocate array initialized with zeros
+        self.arrays[name] = [0] * size
+        # Assign base address
+        base_addr = self.next_address
+        self.array_addresses[name] = base_addr
+        # Update next_address (each element is 1 memory cell = 4 bytes, but we address in cells)
+        self.next_address += size
+        return base_addr
+    
+    def get_array_element(self, name: str, index: int) -> int:
+        """Get an array element with bounds checking."""
+        if name in self.arrays:
+            arr = self.arrays[name]
+            if index < 0 or index >= len(arr):
+                raise RuntimeError(f"Array index out of bounds: {name}[{index}], size={len(arr)}")
+            return arr[index] & 0xFFFFFFFF
+        if self.parent:
+            return self.parent.get_array_element(name, index)
+        raise RuntimeError(f"Undefined array: {name}")
+    
+    def set_array_element(self, name: str, index: int, value: int):
+        """Set an array element with bounds checking."""
+        if name in self.arrays:
+            arr = self.arrays[name]
+            if index < 0 or index >= len(arr):
+                raise RuntimeError(f"Array index out of bounds: {name}[{index}], size={len(arr)}")
+            arr[index] = value & 0xFFFFFFFF
+            return
+        if self.parent:
+            self.parent.set_array_element(name, index, value)
+            return
+        raise RuntimeError(f"Undefined array: {name}")
+    
+    def get_address(self, name: str) -> int:
+        """Get the address of a variable or array."""
+        # Check for variable
+        if name in self.vars:
+            if name not in self.variable_addresses:
+                # Assign address if not already assigned
+                addr = self.next_address
+                self.variable_addresses[name] = addr
+                self.next_address += 1  # Each variable takes 1 memory cell
+                return addr
+            return self.variable_addresses[name]
+        
+        # Check for array
+        if name in self.arrays:
+            if name not in self.array_addresses:
+                # Should not happen - arrays should have addresses assigned on declaration
+                raise RuntimeError(f"Array {name} has no assigned address")
+            return self.array_addresses[name]
+        
+        # Check parent scope
+        if self.parent:
+            return self.parent.get_address(name)
+        
+        raise RuntimeError(f"Undefined variable or array: {name}")
+    
+    def get_value_at_address(self, address: int) -> int:
+        """Get value at a memory address."""
+        # Search for variable at this address
+        for name, addr in self.variable_addresses.items():
+            if addr == address:
+                return self.vars.get(name, 0) & 0xFFFFFFFF
+        
+        # Search for array element at this address
+        for name, base_addr in self.array_addresses.items():
+            if name in self.arrays:
+                arr = self.arrays[name]
+                if base_addr <= address < base_addr + len(arr):
+                    index = address - base_addr
+                    return arr[index] & 0xFFFFFFFF
+        
+        # Check parent scope
+        if self.parent:
+            return self.parent.get_value_at_address(address)
+        
+        raise RuntimeError(f"Invalid memory address: {address}")
+    
+    def set_value_at_address(self, address: int, value: int):
+        """Set value at a memory address."""
+        # Search for variable at this address
+        for name, addr in self.variable_addresses.items():
+            if addr == address:
+                self.vars[name] = value & 0xFFFFFFFF
+                return
+        
+        # Search for array element at this address
+        for name, base_addr in self.array_addresses.items():
+            if name in self.arrays:
+                arr = self.arrays[name]
+                if base_addr <= address < base_addr + len(arr):
+                    index = address - base_addr
+                    arr[index] = value & 0xFFFFFFFF
+                    return
+        
+        # Check parent scope
+        if self.parent:
+            self.parent.set_value_at_address(address, value)
+            return
+        
+        raise RuntimeError(f"Invalid memory address: {address}")
 
 
 class Interpreter:
@@ -132,8 +245,16 @@ class Interpreter:
         """Execute a statement."""
         if isinstance(stmt, VarDecl):
             self.execute_var_decl(stmt, env)
+        elif isinstance(stmt, ArrayDecl):
+            self.execute_array_decl(stmt, env)
+        elif isinstance(stmt, PointerDecl):
+            self.execute_pointer_decl(stmt, env)
         elif isinstance(stmt, Assignment):
             self.execute_assignment(stmt, env)
+        elif isinstance(stmt, ArrayAssignment):
+            self.execute_array_assignment(stmt, env)
+        elif isinstance(stmt, PointerAssignment):
+            self.execute_pointer_assignment(stmt, env)
         elif isinstance(stmt, Increment):
             self.execute_increment(stmt, env)
         elif isinstance(stmt, Decrement):
@@ -177,6 +298,37 @@ class Interpreter:
             # Normal variable
             env.declare(decl.name, value)
     
+    def execute_array_decl(self, decl: ArrayDecl, env: Environment):
+        """Execute an array declaration."""
+        # Evaluate size (must be a literal constant)
+        if not isinstance(decl.size, Literal):
+            raise RuntimeError(f"Array size must be a constant literal, got {type(decl.size)}")
+        size = decl.size.value
+        if size <= 0:
+            raise RuntimeError(f"Array size must be positive, got {size}")
+        
+        # Declare array in environment
+        env.declare_array(decl.name, size)
+        
+        # Initialize array with values if provided
+        if decl.initializer:
+            if len(decl.initializer) > size:
+                raise RuntimeError(f"Too many initializers for array {decl.name}: got {len(decl.initializer)}, expected at most {size}")
+            
+            for i, init_expr in enumerate(decl.initializer):
+                value = self.evaluate_expression(init_expr, env)
+                env.set_array_element(decl.name, i, value)
+    
+    def execute_pointer_decl(self, decl: PointerDecl, env: Environment):
+        """Execute a pointer declaration."""
+        value = 0
+        if decl.initializer:
+            # Initializer should be AddressOf expression
+            value = self.evaluate_expression(decl.initializer, env)
+        
+        # Store pointer value (address) as a regular variable
+        env.declare(decl.name, value)
+    
     def execute_assignment(self, assignment: Assignment, env: Environment):
         """Execute an assignment."""
         value = self.evaluate_expression(assignment.value, env)
@@ -191,6 +343,18 @@ class Interpreter:
             env.assign(assignment.name, value)
         else:
             env.assign(assignment.name, value)
+    
+    def execute_array_assignment(self, assignment: ArrayAssignment, env: Environment):
+        """Execute an array element assignment: arr[i] = value"""
+        index = self.evaluate_expression(assignment.index, env)
+        value = self.evaluate_expression(assignment.value, env)
+        env.set_array_element(assignment.name, index, value)
+    
+    def execute_pointer_assignment(self, assignment: PointerAssignment, env: Environment):
+        """Execute a pointer dereference assignment: *ptr = value"""
+        address = self.evaluate_expression(assignment.operand, env)
+        value = self.evaluate_expression(assignment.value, env)
+        env.set_value_at_address(address, value)
     
     def execute_increment(self, increment: Increment, env: Environment):
         """Execute an increment statement (++x or x++)."""
@@ -278,6 +442,15 @@ class Interpreter:
                 return self.registers[reg_num] & 0xFFFFFFFF
             return env.get(expr.name) & 0xFFFFFFFF
         
+        elif isinstance(expr, ArrayAccess):
+            return self.evaluate_array_access(expr, env)
+        
+        elif isinstance(expr, AddressOf):
+            return self.evaluate_address_of(expr, env)
+        
+        elif isinstance(expr, Dereference):
+            return self.evaluate_dereference(expr, env)
+        
         elif isinstance(expr, BinaryOp):
             return self.evaluate_binary_op(expr, env)
         
@@ -334,6 +507,38 @@ class Interpreter:
             return (~operand) & 0xFFFFFFFF
         else:
             raise RuntimeError(f"Unknown unary operator: {op.op}")
+    
+    def evaluate_array_access(self, expr: ArrayAccess, env: Environment) -> int:
+        """Evaluate array element access: arr[index]"""
+        index = self.evaluate_expression(expr.index, env)
+        return env.get_array_element(expr.name, index)
+    
+    def evaluate_address_of(self, expr: AddressOf, env: Environment) -> int:
+        """Evaluate address-of operator: &x"""
+        operand = expr.operand
+        
+        if isinstance(operand, Identifier):
+            # &variable
+            return env.get_address(operand.name)
+        elif isinstance(operand, ArrayAccess):
+            # &arr[i] - address of array element
+            arr_name = operand.name
+            index = self.evaluate_expression(operand.index, env)
+            base_addr = env.get_address(arr_name)
+            # Each element is 1 memory cell, so address = base + index
+            return (base_addr + index) & 0xFFFFFFFF
+        elif isinstance(operand, Dereference):
+            # &*ptr - address that ptr points to (just the value of ptr)
+            return self.evaluate_expression(operand.operand, env)
+        else:
+            raise RuntimeError(f"Cannot take address of {type(operand)}")
+    
+    def evaluate_dereference(self, expr: Dereference, env: Environment) -> int:
+        """Evaluate pointer dereference: *ptr"""
+        # Get the address (value of the pointer)
+        address = self.evaluate_expression(expr.operand, env)
+        # Get value at that address
+        return env.get_value_at_address(address)
     
     def _error(self, msg: str):
         """Raise a runtime error."""

@@ -9,6 +9,13 @@ Basic programming examples:
 - `sum_range.sc` - Sum of numbers using for loop
 - `nested_loops.sc` - Nested for loops example
 - `hello_world/hello_world.sc` - Hello World example (outputs "Hello World" to UART)
+- `array_example.sc` - Basic array operations (declaration, initialization, access)
+- `array_init_example.sc` - Array initialization with values
+- `array_init_partial.sc` - Partial array initialization
+- `pointer_example.sc` - Pointer operations (address-of, dereference, assignment)
+- `array_pointer.sc` - Arrays and pointers together
+- `pointer_function.sc` - Passing pointers to functions
+- `array_sum.sc` - Calculate sum of array elements using pointer arithmetic
 
 ### `hardware/`
 Hardware-specific examples for MCU programming:

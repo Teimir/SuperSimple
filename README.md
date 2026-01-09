@@ -17,6 +17,13 @@ A minimal, educational C-style programming language with support for:
 - **[doc/CODE_GENERATION.md](doc/CODE_GENERATION.md)** - Code generation and assembly translation details
 - **[examples/README.md](examples/README.md)** - Examples directory structure and descriptions
 
+### LaTeX Documentation
+
+- **[documentation.tex](documentation.tex)** - Полная документация проекта в формате LaTeX (на русском языке)
+- **[COMPILATION_INSTRUCTIONS.md](COMPILATION_INSTRUCTIONS.md)** - Инструкции по компиляции LaTeX документации в PDF
+
+Для компиляции в PDF рекомендуется использовать [Overleaf](https://www.overleaf.com/) или другие онлайн-сервисы (см. инструкции выше).
+
 ## Installation
 
 Requires Python 3.7 or higher. No additional dependencies needed.

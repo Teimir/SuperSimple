@@ -24,7 +24,7 @@ class RegisterAllocator:
         self.available_registers = list(range(0, 31))  # r0 to r30
         self.allocated: Dict[str, int] = {}  # variable name -> register number
         self.temp_counter = 0
-        self.next_temp = 0  # Start with r0 for temporaries
+        self.next_temp = 1  # Start with r1 for temporaries (r0 reserved for return value)
         
     def allocate(self, name: str) -> int:
         """Allocate a register for a variable."""
@@ -47,9 +47,11 @@ class RegisterAllocator:
     
     def get_temp_register(self) -> int:
         """Get a temporary register."""
-        # Use r0-r10 for temporaries
+        # Use r1-r10 for temporaries (r0 is reserved for function return value)
         reg = self.next_temp
-        self.next_temp = (self.next_temp + 1) % 11  # Cycle through r0-r10
+        self.next_temp = (self.next_temp + 1) % 10  # Cycle through r1-r10
+        if reg == 0:
+            reg = 1  # Skip r0, start from r1
         return reg
     
     def free_temp(self, reg: int):
@@ -217,6 +219,18 @@ class CodeGenerator:
         self.emit_label(self.function_labels[func.name])
         self.emit_comment(f"Function: {func.name}")
         
+        # Save link register (r:30) to stack if this is not main
+        # Main doesn't need to save because it's the entry point
+        if func.name != 'main':
+            # Save return address from r:30 to stack before modifying r:30
+            # Push return address: sub r:30, r:30, 1; lds [r:30], r:30 (but r:30 contains address, so save it first)
+            temp_reg = self.reg_allocator.get_temp_register()
+            self.emit(f"mov {self.get_register_name(temp_reg)}, r:30")  # Save return address
+            self.emit(f"sub r:30, r:30, 1")  # Allocate space for return address
+            self.emit(f"lds [r:30], {self.get_register_name(temp_reg)}")  # Store return address
+            self.reg_allocator.free_temp(temp_reg)
+            self.stack_offset += 1  # Account for saved return address
+        
         # Allocate registers for parameters
         param_regs = []
         for i, param in enumerate(func.params):
@@ -236,6 +250,8 @@ class CodeGenerator:
         
         # Function return (if no explicit return, return 0)
         # Return value should be in r:0 by convention
+        # Note: If function has explicit return, it already generated the return code
+        # so we don't need to generate it again here
         if not self._has_explicit_return:
             self.emit_comment("Implicit return 0")
             self.emit("mov r:0, 0")
@@ -245,8 +261,13 @@ class CodeGenerator:
                 # Main function ends the program
                 self.emit("hlt")
             else:
-                # Return to caller by jumping to return address in r:30
-                self.emit(f"mov r:31, r:30")
+                # Restore return address from stack and return
+                # r:30 currently points to where we saved the return address
+                # Read return address into r:29 (NOT r:0, which contains return value!)
+                self.emit(f"lds r:29, [r:30]")  # Read return address into r:29
+                self.emit(f"add r:30, r:30, 1")  # Restore stack pointer (pop return address)
+                # Return to caller by jumping to return address
+                self.emit(f"mov r:31, r:29")
         
         # Reset flag
         self._has_explicit_return = False
@@ -462,39 +483,86 @@ class CodeGenerator:
             raise RuntimeError("Modulo not yet supported in code generation")
         elif op.op == '==':
             # Equality comparison: use cmpe
-            self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
-            # Convert -1 (equal) to 1, 0 (not equal) to 0
-            temp = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(temp)}, -1")
-            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.reg_allocator.free_temp(temp)
+            # Check if result_reg conflicts with left_reg or right_reg
+            if result_reg == left_reg or result_reg == right_reg:
+                temp_cmp = self.reg_allocator.get_temp_register()
+                self.emit(f"cmpe {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # Convert -1 (equal) to 1, 0 (not equal) to 0
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
+                self.reg_allocator.free_temp(temp_cmp)
+            else:
+                self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # Convert -1 (equal) to 1, 0 (not equal) to 0
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
         elif op.op == '!=':
             # Not equal: use cmpe and invert
-            self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
-            # Convert 0 (equal) to 0, -1 (not equal) to 1
-            temp = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(temp)}, -1")
-            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.reg_allocator.free_temp(temp)
+            # Check if result_reg conflicts with left_reg or right_reg
+            if result_reg == left_reg or result_reg == right_reg:
+                temp_cmp = self.reg_allocator.get_temp_register()
+                self.emit(f"cmpe {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # Convert 0 (equal) to 0, -1 (not equal) to 1
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
+                self.reg_allocator.free_temp(temp_cmp)
+            else:
+                self.emit(f"cmpe {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # Convert 0 (equal) to 0, -1 (not equal) to 1
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
         elif op.op == '<':
             # Less than: use cmpb
-            self.emit(f"cmpb {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
-            # Convert -1 (less) to 1, 0 (not less) to 0
-            temp = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(temp)}, -1")
-            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.reg_allocator.free_temp(temp)
+            # Check if result_reg conflicts with left_reg or right_reg
+            if result_reg == left_reg or result_reg == right_reg:
+                temp_cmp = self.reg_allocator.get_temp_register()
+                self.emit(f"cmpb {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # Convert -1 (less) to 1, 0 (not less) to 0
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
+                self.reg_allocator.free_temp(temp_cmp)
+            else:
+                self.emit(f"cmpb {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # Convert -1 (less) to 1, 0 (not less) to 0
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
         elif op.op == '>':
             # Greater than: use cmpa
-            self.emit(f"cmpa {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
-            temp = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(temp)}, -1")
-            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
-            self.reg_allocator.free_temp(temp)
+            # Check if result_reg conflicts with left_reg or right_reg
+            if result_reg == left_reg or result_reg == right_reg:
+                temp_cmp = self.reg_allocator.get_temp_register()
+                self.emit(f"cmpa {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
+                self.reg_allocator.free_temp(temp_cmp)
+            else:
+                self.emit(f"cmpa {self.get_register_name(result_reg)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                temp = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(temp)}, -1")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.emit(f"xor {self.get_register_name(result_reg)}, {self.get_register_name(result_reg)}, {self.get_register_name(temp)}")
+                self.reg_allocator.free_temp(temp)
         elif op.op == '<=':
             # Less than or equal: (a <= b) means !(a > b)
             # Use cmpa to check if a > b, then invert
@@ -515,27 +583,115 @@ class CodeGenerator:
             self.reg_allocator.free_temp(zero_reg)
         elif op.op == '>=':
             # Greater than or equal: (a >= b) == !(a < b)
-            temp = self.reg_allocator.get_temp_register()
-            self.emit(f"cmpb {self.get_register_name(temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
-            self.emit(f"mov {self.get_register_name(result_reg)}, 1")
-            zero_reg = self.reg_allocator.get_temp_register()
-            self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
-            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(zero_reg)}")
-            self.reg_allocator.free_temp(temp)
-            self.reg_allocator.free_temp(zero_reg)
+            # Use cmpb to check if a < b, then invert
+            # Check if result_reg conflicts with left_reg or right_reg
+            if result_reg == left_reg or result_reg == right_reg:
+                temp_cmp = self.reg_allocator.get_temp_register()
+                while temp_cmp == left_reg or temp_cmp == right_reg:
+                    self.reg_allocator.free_temp(temp_cmp)
+                    temp_cmp = self.reg_allocator.get_temp_register()
+                self.emit(f"cmpb {self.get_register_name(temp_cmp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # temp_cmp is -1 if a < b, 0 if a >= b
+                # We want result_reg = 1 if a >= b, 0 if a < b
+                # So: result_reg = 1 if temp_cmp == 0, else 0
+                one_reg = self.reg_allocator.get_temp_register()
+                while one_reg == left_reg or one_reg == right_reg or one_reg == result_reg or one_reg == temp_cmp:
+                    self.reg_allocator.free_temp(one_reg)
+                    one_reg = self.reg_allocator.get_temp_register()
+                zero_reg = self.reg_allocator.get_temp_register()
+                while zero_reg == left_reg or zero_reg == right_reg or zero_reg == result_reg or zero_reg == temp_cmp or zero_reg == one_reg:
+                    self.reg_allocator.free_temp(zero_reg)
+                    zero_reg = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+                self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(one_reg)}")
+                self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp_cmp)}, {self.get_register_name(zero_reg)}")
+                self.reg_allocator.free_temp(temp_cmp)
+                self.reg_allocator.free_temp(one_reg)
+                self.reg_allocator.free_temp(zero_reg)
+            else:
+                temp = self.reg_allocator.get_temp_register()
+                while temp == left_reg or temp == right_reg:
+                    self.reg_allocator.free_temp(temp)
+                    temp = self.reg_allocator.get_temp_register()
+                self.emit(f"cmpb {self.get_register_name(temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(right_reg)}")
+                # temp is -1 if a < b, 0 if a >= b
+                # We want result_reg = 1 if a >= b, 0 if a < b
+                # So: result_reg = 1 if temp == 0, else 0
+                one_reg = self.reg_allocator.get_temp_register()
+                while one_reg == left_reg or one_reg == right_reg or one_reg == result_reg or one_reg == temp:
+                    self.reg_allocator.free_temp(one_reg)
+                    one_reg = self.reg_allocator.get_temp_register()
+                zero_reg = self.reg_allocator.get_temp_register()
+                while zero_reg == left_reg or zero_reg == right_reg or zero_reg == result_reg or zero_reg == temp or zero_reg == one_reg:
+                    self.reg_allocator.free_temp(zero_reg)
+                    zero_reg = self.reg_allocator.get_temp_register()
+                self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+                self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
+                self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(one_reg)}")
+                self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(zero_reg)}")
+                self.reg_allocator.free_temp(temp)
+                self.reg_allocator.free_temp(one_reg)
+                self.reg_allocator.free_temp(zero_reg)
         elif op.op == '&&':
             # Logical AND: both non-zero
-            # Convert to: (left != 0) && (right != 0)
-            temp = self.reg_allocator.get_temp_register()
+            # left_reg and right_reg already contain boolean values (0 or 1)
+            # We want result = 1 if (left_reg != 0) && (right_reg != 0), else 0
+            # Make sure we don't conflict with left_reg, right_reg, or result_reg
             zero_reg = self.reg_allocator.get_temp_register()
+            while zero_reg == left_reg or zero_reg == right_reg or zero_reg == result_reg:
+                self.reg_allocator.free_temp(zero_reg)
+                zero_reg = self.reg_allocator.get_temp_register()
+            one_reg = self.reg_allocator.get_temp_register()
+            while one_reg == left_reg or one_reg == right_reg or one_reg == result_reg or one_reg == zero_reg:
+                self.reg_allocator.free_temp(one_reg)
+                one_reg = self.reg_allocator.get_temp_register()
             self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
-            self.emit(f"cmpe {self.get_register_name(temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(zero_reg)}")
+            self.emit(f"mov {self.get_register_name(one_reg)}, 1")
+            # Check if left_reg != 0: left_temp is -1 if left == 0, 0 if left != 0
+            # Make sure left_temp doesn't conflict with left_reg, right_reg, result_reg, zero_reg, or one_reg
+            left_temp = self.reg_allocator.get_temp_register()
+            while left_temp == left_reg or left_temp == right_reg or left_temp == result_reg or left_temp == zero_reg or left_temp == one_reg:
+                self.reg_allocator.free_temp(left_temp)
+                left_temp = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpe {self.get_register_name(left_temp)}, {self.get_register_name(left_reg)}, {self.get_register_name(zero_reg)}")
+            # Check if right_reg != 0: right_temp is -1 if right == 0, 0 if right != 0
+            # Make sure right_temp doesn't conflict with any other registers
+            right_temp = self.reg_allocator.get_temp_register()
+            while right_temp == right_reg or right_temp == left_reg or right_temp == result_reg or right_temp == left_temp or right_temp == zero_reg or right_temp == one_reg:
+                self.reg_allocator.free_temp(right_temp)
+                right_temp = self.reg_allocator.get_temp_register()
+            self.emit(f"cmpe {self.get_register_name(right_temp)}, {self.get_register_name(right_reg)}, {self.get_register_name(zero_reg)}")
+            # Result is 1 if both are non-zero (both != 0), else 0
+            # We want result = 1 if (left_temp == 0) && (right_temp == 0), else 0
+            # left_temp == 0 means left != 0 (left is true)
+            # right_temp == 0 means right != 0 (right is true)
+            # So result = 1 if (left_temp == 0) && (right_temp == 0)
+            # Use a separate temp register for intermediate comparisons to avoid conflicts
+            check_left = self.reg_allocator.get_temp_register()
+            while check_left == left_reg or check_left == right_reg or check_left == result_reg or check_left == left_temp or check_left == right_temp or check_left == zero_reg or check_left == one_reg:
+                self.reg_allocator.free_temp(check_left)
+                check_left = self.reg_allocator.get_temp_register()
+            check_right = self.reg_allocator.get_temp_register()
+            while check_right == left_reg or check_right == right_reg or check_right == result_reg or check_right == left_temp or check_right == right_temp or check_right == zero_reg or check_right == one_reg or check_right == check_left:
+                self.reg_allocator.free_temp(check_right)
+                check_right = self.reg_allocator.get_temp_register()
+            # Check if left_temp == 0 (left != 0)
+            self.emit(f"cmpe {self.get_register_name(check_left)}, {self.get_register_name(left_temp)}, {self.get_register_name(zero_reg)}")
+            # Check if right_temp == 0 (right != 0)
+            self.emit(f"cmpe {self.get_register_name(check_right)}, {self.get_register_name(right_temp)}, {self.get_register_name(zero_reg)}")
+            # Result is 1 if both checks are 0 (both are true), else 0
             self.emit(f"mov {self.get_register_name(result_reg)}, 0")
-            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(result_reg)}")
-            self.emit(f"cmpe {self.get_register_name(temp)}, {self.get_register_name(right_reg)}, {self.get_register_name(zero_reg)}")
-            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(temp)}, {self.get_register_name(result_reg)}")
-            self.reg_allocator.free_temp(temp)
+            # If check_left == 0 (left_temp == 0, meaning left is true), set result to 1
+            self.emit(f"cmovz {self.get_register_name(result_reg)}, {self.get_register_name(check_left)}, {self.get_register_name(one_reg)}")
+            # If check_right != 0 (right_temp != 0, meaning right is false), set result to 0
+            self.emit(f"cmovnz {self.get_register_name(result_reg)}, {self.get_register_name(check_right)}, {self.get_register_name(zero_reg)}")
+            self.reg_allocator.free_temp(check_left)
+            self.reg_allocator.free_temp(check_right)
+            self.reg_allocator.free_temp(left_temp)
+            self.reg_allocator.free_temp(right_temp)
             self.reg_allocator.free_temp(zero_reg)
+            self.reg_allocator.free_temp(one_reg)
         elif op.op == '||':
             # Logical OR: either non-zero
             zero_reg = self.reg_allocator.get_temp_register()
@@ -712,8 +868,14 @@ class CodeGenerator:
             # Main function ends the program
             self.emit("hlt")
         else:
-            # Return to caller by jumping to return address in r:30
-            self.emit(f"mov r:31, r:30")
+            # Restore return address from stack and return
+            # r:30 currently points to where we saved the return address
+            # Read return address into a temp register (NOT r:0, which contains return value!)
+            # Use r:29 as temp for return address (r:0 contains function result)
+            self.emit(f"lds r:29, [r:30]")  # Read return address into r:29
+            self.emit(f"add r:30, r:30, 1")  # Restore stack pointer (pop return address)
+            # Return to caller by jumping to return address
+            self.emit(f"mov r:31, r:29")
     
     def generate_if(self, stmt: IfStmt):
         """Generate code for if statement."""
@@ -727,7 +889,7 @@ class CodeGenerator:
         
         # Conditional jump: if condition == 0 (false), jump to else/end
         # cmovz r:31, condition_reg, label addr means: if condition_reg == 0, set r:31 to label address (jump)
-        if stmt.else_branch:
+        if stmt.else_stmt:
             self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {else_label} addr")
         else:
             self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
@@ -736,16 +898,16 @@ class CodeGenerator:
         self.reg_allocator.free_temp(condition_reg)
         
         # Then branch
-        self.generate_statement(stmt.then_branch)
+        self.generate_statement(stmt.then_stmt)
         
         # Unconditional jump to end (skip else branch)
-        if stmt.else_branch:
+        if stmt.else_stmt:
             self.emit(f"mov r:31, {end_label} addr")
         
         # Else branch
-        if stmt.else_branch:
+        if stmt.else_stmt:
             self.emit_label(else_label)
-            self.generate_statement(stmt.else_branch)
+            self.generate_statement(stmt.else_stmt)
         
         self.emit_label(end_label)
     
@@ -758,15 +920,24 @@ class CodeGenerator:
         
         # Evaluate condition
         condition_reg = self.generate_expression(stmt.condition)
-        zero_reg = self.reg_allocator.get_temp_register()
+        # Use a fixed register (r:10) for zero to avoid conflicts with condition_reg
+        # r:10 is rarely used and should be safe
+        zero_reg = 10
+        # But if condition_reg is r:10, we need to use a different register
+        if condition_reg == zero_reg:
+            zero_reg = self.reg_allocator.get_temp_register()
+            while zero_reg == condition_reg:
+                self.reg_allocator.free_temp(zero_reg)
+                zero_reg = self.reg_allocator.get_temp_register()
         self.emit(f"mov {self.get_register_name(zero_reg)}, 0")
         
         # Conditional jump: if condition == 0 (false), exit loop
         # cmovz r:31, condition_reg, end_label addr means: if condition_reg == 0, set r:31 to end_label address (jump)
         self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
         
-        self.reg_allocator.free_temp(zero_reg)
-        self.reg_allocator.free_temp(condition_reg)
+        if condition_reg != 10:
+            # Only free if we allocated it
+            self.reg_allocator.free_temp(condition_reg)
         
         # Loop body
         self.generate_statement(stmt.body)

@@ -110,13 +110,18 @@ def compile_with_fasm(asm_file: str):
     try:
         os.chdir(asm_dir)
         
-        # Run FASM
-        result = subprocess.run(
-            [fasm_exe, os.path.basename(asm_abs)],
-            capture_output=True,
-            text=True,
-            cwd=asm_dir
-        )
+        # Run FASM with timeout (30 seconds should be enough for compilation)
+        try:
+            result = subprocess.run(
+                [fasm_exe, os.path.basename(asm_abs)],
+                capture_output=True,
+                text=True,
+                cwd=asm_dir,
+                timeout=30
+            )
+        except subprocess.TimeoutExpired:
+            print(f"FASM compilation timed out after 30 seconds")
+            raise RuntimeError("FASM compilation timed out")
         
         if result.returncode == 0:
             bin_file = asm_file.replace('.asm', '.bin')
@@ -156,13 +161,21 @@ def run_interpreter(bin_file: str):
     print(f"Running interpreter: {bin_abs}")
     print("=" * 50)
     
-    # Run interpreter and capture output
-    result = subprocess.run(
-        [interpreter_exe, bin_abs],
-        cwd=os.path.dirname(bin_abs),
-        capture_output=True,
-        text=True
-    )
+    # Run interpreter and capture output with timeout (10 seconds should be enough for most programs)
+    try:
+        result = subprocess.run(
+            [interpreter_exe, bin_abs],
+            cwd=os.path.dirname(bin_abs),
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+    except subprocess.TimeoutExpired:
+        print("=" * 50)
+        print("ERROR: Program execution timed out after 10 seconds")
+        print("This usually indicates an infinite loop or very slow execution.")
+        print("=" * 50)
+        sys.exit(124)  # Exit code 124 is commonly used for timeout
     
     # Print output (always limit to last 150 lines for readability)
     if result.stdout:

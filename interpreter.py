@@ -20,6 +20,7 @@ Runtime State:
 from typing import Dict, Optional, List, Any, Tuple
 import json
 import os
+import sys
 from parser import (
     Program, FunctionDef, Statement, Expression,
     Literal, Identifier, BinaryOp, UnaryOp, FunctionCall,
@@ -892,7 +893,17 @@ class Interpreter:
                 raise RuntimeError(f"uart_write expects 1 argument, got {len(args)}")
             if self.uart_state["tx_ready"] == 0:
                 raise RuntimeError("UART TX not ready")
-            self.uart_state["data"] = args[0] & 0xFF
+            # Get byte value (lowest 8 bits)
+            byte_value = args[0] & 0xFF
+            # Output character to stdout
+            try:
+                sys.stdout.write(chr(byte_value))
+                sys.stdout.flush()
+            except (ValueError, OverflowError):
+                # If byte_value is not a valid character, output as-is
+                sys.stdout.buffer.write(bytes([byte_value]))
+                sys.stdout.flush()
+            self.uart_state["data"] = byte_value
             self.uart_state["tx_ready"] = 1
             return 0
         

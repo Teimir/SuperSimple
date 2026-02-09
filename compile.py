@@ -4,6 +4,8 @@ Compiles .sc source files to FASM assembly (.asm) files, then to binary (.bin) u
 Also provides option to run the binary using interpreter_x64.exe.
 """
 
+__version__ = "1.0.0"
+
 import sys
 import os
 import subprocess
@@ -202,37 +204,64 @@ def run_interpreter(bin_file: str):
     sys.exit(result.returncode)
 
 
+def _print_usage():
+    print("Usage: python compile.py <source_file> [output_file] [--run]")
+    print("")
+    print("Compiles a .sc source file to FASM assembly (.asm), then to binary (.bin).")
+    print("If output_file is not specified, output will be <source_file>.asm")
+    print("")
+    print("Options:")
+    print("  -h, --help    Show this help")
+    print("  -V, --version Show version")
+    print("  --run         After compilation, run the binary using interpreter_x64.exe")
+    print(f"Version: {__version__}")
+    print("")
+    print("Examples:")
+    print("  python compile.py test_examples/basic/sum_range.sc")
+    print("  python compile.py test_examples/basic/sum_range.sc --run")
+    print("  python compile.py --run test_examples/basic/sum_range.sc")
+
+
 def main():
     """Main entry point."""
-    if len(sys.argv) < 2:
-        print("Usage: python compile.py <source_file> [output_file] [--run]")
-        print("")
-        print("Compiles a .sc source file to FASM assembly (.asm), then to binary (.bin).")
-        print("If output_file is not specified, output will be <source_file>.asm")
-        print("")
-        print("Options:")
-        print("  --run    After compilation, run the binary using interpreter_x64.exe")
-        print("")
-        print("Examples:")
-        print("  python compile.py test_examples/basic/sum_range.sc")
-        print("  python compile.py test_examples/basic/sum_range.sc --run")
+    args = sys.argv[1:]
+    if not args:
+        _print_usage()
         sys.exit(1)
-    
-    source_file = sys.argv[1]
+
+    # Parse options and positional args (first non-option is source_file, second is optional output_file)
+    source_file = None
     output_file = None
     run_after = False
-    
-    # Parse arguments
-    for arg in sys.argv[2:]:
+
+    for arg in args:
+        if arg in ('-h', '--help', '-help'):
+            _print_usage()
+            sys.exit(0)
+        if arg in ('-V', '--version'):
+            print(__version__)
+            sys.exit(0)
         if arg == '--run':
             run_after = True
         elif not arg.startswith('-'):
-            output_file = arg
-    
+            if source_file is None:
+                source_file = arg
+            elif output_file is None:
+                output_file = arg
+            else:
+                print(f"Error: unexpected argument '{arg}'")
+                _print_usage()
+                sys.exit(1)
+
+    if source_file is None:
+        print("Error: no source file specified.")
+        _print_usage()
+        sys.exit(1)
+
     if output_file is None:
         base_name = os.path.splitext(source_file)[0]
         output_file = f"{base_name}.asm"
-    
+
     compile_file(source_file, output_file)
     
     # Run interpreter if requested

@@ -2,6 +2,8 @@
 Main entry point for the Simple C-Style Language interpreter.
 """
 
+__version__ = "1.0.0"
+
 import sys
 import os
 from lexer import Lexer, TokenType
@@ -15,8 +17,17 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python main.py <source_file>")
         sys.exit(1)
-    
+
     source_file = sys.argv[1]
+    if source_file in ('-h', '--help', '-help'):
+        print("Usage: python main.py <source_file>")
+        print("")
+        print("Runs the Simple C-Style Language interpreter on the given .sc source file.")
+        print(f"Version: {__version__}")
+        sys.exit(0)
+    if source_file in ('-V', '--version'):
+        print(__version__)
+        sys.exit(0)
     
     try:
         # Preprocess (handle #include directives)

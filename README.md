@@ -1,5 +1,7 @@
 # Simple C-Style Language (SuperSimple)
 
+**Версия:** 1.0.0
+
 Минимальный образовательный язык в стиле C с поддержкой 32-битных беззнаковых целых, функций, циклов, условий, массивов, указателей, директивы `#include` и аппаратных операций (GPIO, UART, таймер, прерывания).
 
 ---
@@ -48,11 +50,13 @@ python main.py <исходный_файл>
 | Аргумент | Описание |
 |----------|----------|
 | `исходный_файл` | Путь к файлу `.sc` (обязательный). Поддерживается `#include`. |
+| `-h`, `--help` | Вывод справки (с указанием версии). |
+| `-V`, `--version` | Вывод версии. |
 
 **Вывод:**
 
 - В stdout выводится строка вида: `Program executed successfully. Return value: <значение>`.
-- Ошибки препроцессора, лексера, парсера или времени выполнения выводятся в stderr; при первом встреченном блоке `asm { }` в stderr выводится предупреждение о том, что asm в интерпретаторе не поддерживается.
+- Ошибки препроцессора, лексера, парсера или времени выполнения выводятся в stdout; при первом встреченном блоке `asm { }` выводится предупреждение о том, что asm в интерпретаторе не поддерживается.
 
 **Коды завершения:**
 
@@ -79,12 +83,16 @@ python main.py test_examples/hardware/uart_echo.sc
 python compile.py <исходный_файл> [выходной_файл.asm] [--run]
 ```
 
+Порядок аргументов произвольный: опции (`-h`, `-V`, `--run`) и файлы можно указывать в любом порядке (например, `--run` до или после имени файла).
+
 **Аргументы:**
 
 | Аргумент | Описание |
 |----------|----------|
 | `исходный_файл` | Путь к файлу `.sc` (обязательный). Поддерживается `#include`. |
 | `выходной_файл.asm` | Опционально. Путь к результирующему `.asm`. По умолчанию — `<исходный_файл>.asm` (рядом с исходником). |
+| `-h`, `--help` | Вывод справки (с указанием версии). |
+| `-V`, `--version` | Вывод версии. |
 | `--run` | Опционально. После успешной компиляции запустить бинарник через `int_pack/interpreter_x64.exe`. |
 
 **Порядок работы:**
@@ -98,7 +106,12 @@ python compile.py <исходный_файл> [выходной_файл.asm] [-
 **Вывод:**
 
 - В stdout: сообщения о создании `.asm`, об успешной компиляции FASM, путях к `.bin`/`.mif`; при `--run` — вывод запущенного бинарника (последние 150 строк при большом объёме).
-- Ошибки выводятся в stderr; при отсутствии FASM.EXE бинарник не создаётся, но `.asm` уже записан.
+- Ошибки и предупреждения выводятся в stdout; при отсутствии FASM.EXE бинарник не создаётся, но `.asm` уже записан.
+
+**Таймауты и коды выхода:**
+
+- Компиляция FASM: таймаут 30 секунд.
+- При `--run`: выполнение бинарника ограничено 10 секундами; при превышении выводится сообщение и завершение с кодом **124**.
 
 **Примеры:**
 
@@ -109,12 +122,15 @@ python compile.py test_examples/basic/sum_range.sc
 # .asm в указанный файл
 python compile.py test_examples/basic/sum_range.sc out/sum.asm
 
-# Компиляция и запуск бинарника
+# Компиляция и запуск бинарника (порядок аргументов произвольный)
 python compile.py test_examples/basic/sum_range.sc --run
+python compile.py --run test_examples/basic/sum_range.sc
 python compile.py test_examples/hardware/gpio_blink.sc --run
 ```
 
 **Требования для бинарника и --run:** в корне проекта должны быть каталог `int_pack` с `FASM.EXE` и при использовании `--run` — `interpreter_x64.exe`. Подключение макросов и формата — через `int_pack/ISA.inc`.
+
+**Коды завершения compile.py:** `0` — успех; `1` — ошибка (файл не найден, ошибка препроцессора/парсера/кодогенерации/FASM или не указан исходный файл); `124` — таймаут выполнения бинарника при `--run`.
 
 ---
 
@@ -305,7 +321,7 @@ int_pack/interpreter_x64.exe путь/к/файлу.bin
 
 | Категория    | Описание |
 |-------------|----------|
-| **basic/**  | sum_range.sc, nested_loops.sc, arrays.sc, pointer_example.sc, array_pointer.sc, pointer_function.sc, array_sum.sc, hello_world/ |
+| **basic/**  | sum_range.sc, nested_loops.sc, arrays.sc, asm_inline.sc, pointer_example.sc, array_pointer.sc, pointer_function.sc, array_sum.sc, hello_world/ |
 | **hardware/** | gpio_blink.sc, uart_echo.sc, timer_example.sc, interrupt_example.sc, bit_manipulation.sc, bit_test_simple.sc, volatile_test.sc, заголовки gpio.h, uart.h, timer.h, hardware.h |
 | **operators/** | hex_literals.sc, relational_operators.sc, operator_precedence.sc, increment_decrement.sc |
 | **includes/** | nested_include.sc, circular_a.sc, circular_b.sc, utils.sc, math_ops.sc |

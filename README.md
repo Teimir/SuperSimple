@@ -1,216 +1,158 @@
-# Simple C-Style Language
+# Simple C-Style Language (SuperSimple)
 
-A minimal, educational C-style programming language with support for:
-- 32-bit unsigned integers as the only data type
-- Functions with parameters and return values
-- For and while loops
-- Conditional statements (if/else)
-- Arithmetic and logical operations
+Минимальный образовательный язык в стиле C с поддержкой 32-битных беззнаковых целых, функций, циклов, условий, массивов, указателей, директивы `#include` и аппаратных операций (GPIO, UART, таймер, прерывания).
 
-## Documentation
+---
 
-- **[doc/LANGUAGE_SPEC.md](doc/LANGUAGE_SPEC.md)** - Complete language specification and grammar
-- **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)** - System architecture and design overview
-- **[doc/INCLUDE_MECHANISM.md](doc/INCLUDE_MECHANISM.md)** - Detailed explanation of how `#include` directives work
-- **[doc/CONTRIBUTING.md](doc/CONTRIBUTING.md)** - Development guidelines and contribution instructions
-- **[doc/PROJECT_STRUCTURE.md](doc/PROJECT_STRUCTURE.md)** - Project file organization
-- **[doc/CODE_GENERATION.md](doc/CODE_GENERATION.md)** - Code generation and assembly translation details
-- **[test_examples/README.md](test_examples/README.md)** - Test examples directory structure and descriptions
+## Содержание
 
-### LaTeX Documentation
+- [Установка и требования](#установка-и-требования)
+- [Использование](#использование)
+- [Структура проекта](#структура-проекта)
+- [Архитектура](#архитектура)
+- [Спецификация языка](#спецификация-языка)
+- [Директива #include](#директива-include)
+- [Компиляция в ассемблер и бинарник](#компиляция-в-ассемблер-и-бинарник)
+- [ISA и int_pack](#isa-и-int_pack)
+- [Примеры](#примеры)
+- [Тестирование](#тестирование)
+- [Разработка и контрибьюция](#разработка-и-контрибьюция)
+- [Ограничения](#ограничения)
+- [История изменений](#история-изменений)
+- [Лицензия](#лицензия)
 
-- **[documentation.tex](documentation.tex)** - Полная документация проекта в формате LaTeX (на русском языке)
-- **[COMPILATION_INSTRUCTIONS.md](COMPILATION_INSTRUCTIONS.md)** - Инструкции по компиляции LaTeX документации в PDF
+---
 
-Для компиляции в PDF рекомендуется использовать [Overleaf](https://www.overleaf.com/) или другие онлайн-сервисы (см. инструкции выше).
+## Установка и требования
 
-## Installation
+- **Python 3.7+**
+- Внешние зависимости не требуются.
 
-Requires Python 3.7 or higher. No additional dependencies needed.
+---
 
-## Usage
+## Использование
 
-Run a program:
+**Запуск программы через интерпретатор:**
 
 ```bash
-python main.py <source_file>
+python main.py <исходный_файл>
 ```
 
-The program will execute and print the return value from the `main` function.
+Результат — значение, возвращаемое из `main`.
 
-Example:
+**Пример:**
 
 ```bash
 python main.py test_examples/basic/sum_range.sc
 ```
 
-## Examples
-
-Example programs are organized in the `test_examples/` directory by category:
-
-### Basic Examples (`test_examples/basic/`)
-- `sum_range.sc` - Sum of numbers using for loop
-- `nested_loops.sc` - Nested for loops example
-- `hello_world/hello_world.sc` - Hello World example (outputs to UART)
-- `arrays.sc` - Comprehensive array operations (declaration, initialization, access)
-- `pointer_example.sc` - Pointer operations (address-of, dereference, assignment)
-- `array_pointer.sc` - Arrays and pointers together
-- `pointer_function.sc` - Passing pointers to functions
-- `array_sum.sc` - Calculate sum of array elements using pointer arithmetic
-
-### Hardware Examples (`test_examples/hardware/`)
-- `register_test.sc` - Register variable access
-- `volatile_test.sc` - Volatile variables
-- `gpio_blink.sc` - GPIO LED blink example
-- `uart_echo.sc` - UART echo example
-- `timer_example.sc` - Timer usage example
-- `interrupt_example.sc` - Timer interrupt example
-- `bit_manipulation.sc` - Bit manipulation functions
-- Header files: `gpio.h`, `uart.h`, `timer.h`, `hardware.h`
-
-### Operator Examples (`test_examples/operators/`)
-- `hex_literals.sc` - Hexadecimal literal values
-- `relational_operators.sc` - Relational operators tests
-- `operator_precedence.sc` - Operator precedence testing
-- `increment_decrement.sc` - Increment/decrement operators (prefix and postfix)
-
-### Include Examples (`test_examples/includes/`)
-- `include_example.sc` - Basic include directive
-- `nested_include.sc` - Nested includes
-- `circular_a.sc`, `circular_b.sc` - Circular include tests
-- `utils.sc` - Utility functions library
-- `math_ops.sc` - Math operations library
-
-### Advanced Examples (`test_examples/advanced/`)
-- `fibonacci.sc` - Fibonacci sequence
-- `recursion.sc` - Recursive functions
-- `gcd.sc` - Greatest Common Divisor
-- `scope_test.sc` - Variable scoping
-- `complex_nested.sc` - Complex nested structures
-- `overflow.sc` - Integer overflow testing
-- `for_loops.sc` - For loops with increment and decrement
-
-See `test_examples/README.md` for detailed descriptions.
-
-## Compilation
-
-Compile a source file to FASM assembly, then to binary:
+**Компиляция в FASM-ассемблер и бинарник:**
 
 ```bash
-python compile.py <source_file> [output_file] [--run]
+python compile.py <исходный_файл> [выходной_файл.asm] [--run]
 ```
 
-Options:
-- `output_file` - Optional output `.asm` file path (default: `<source_file>.asm`)
-- `--run` - After compilation, run the binary using `interpreter_x64.exe` from `int_pack`
+- `выходной_файл.asm` — опционально (по умолчанию `<исходный_файл>.asm`).
+- `--run` — после компиляции запустить бинарник через `int_pack/interpreter_x64.exe`.
 
-Examples:
+**Примеры:**
+
 ```bash
-# Compile to assembly and binary
 python compile.py test_examples/basic/sum_range.sc
-
-# Compile and run
 python compile.py test_examples/basic/sum_range.sc --run
 ```
 
-This generates:
-- `.asm` file - FASM assembly source
-- `.bin` file - Binary executable (compiled with `int_pack/FASM.EXE`)
-- `.mif` file - Memory Initialization File for Quartus
+Создаются: `.asm` (FASM), `.bin` (исполняемый файл), `.mif` (Memory Initialization File для Quartus). Используются `int_pack/FASM.EXE` и `int_pack/ISA.inc`.
 
-The compiler uses `int_pack/FASM.EXE` to compile assembly and `int_pack/interpreter_x64.exe` to run binaries.
-The `int_pack/ISA.inc` file is automatically included in generated assembly files.
+---
 
-See [doc/CODE_GENERATION.md](doc/CODE_GENERATION.md) for details on code generation.
-
-## Project Structure
+## Структура проекта
 
 ```
-aiproj/
-├── main.py                 # Main entry point
-├── lexer.py                # Tokenizer (source → tokens)
-├── parser.py               # Parser (tokens → AST)
-├── interpreter.py          # Interpreter (AST → execution)
-├── preprocessor.py         # Preprocessor (#include handling)
-├── codegen.py              # Code generator (AST → assembly)
-├── compile.py              # Compilation script
+SuperSimple/
+├── main.py              # Точка входа интерпретатора
+├── lexer.py             # Токенизатор (исходный код → токены)
+├── parser.py            # Парсер (токены → AST)
+├── interpreter.py      # Интерпретатор (AST → выполнение)
+├── preprocessor.py     # Препроцессор (#include)
+├── codegen.py          # Генератор кода (AST → ассемблер)
+├── compile.py          # Скрипт компиляции
+├── emulator_main.py    # Точка входа эмулятора (если используется)
+├── gui_main.py         # Точка входа GUI (если используется)
 │
-├── README.md               # This file
-│
-├── test_examples/          # Test example programs
-│   ├── basic/             # Basic programming examples
-│   │   └── hello_world/   # Hello World example
-│   ├── hardware/          # Hardware/MCU examples
-│   ├── operators/         # Operator testing examples
-│   ├── includes/          # Include directive examples
-│   ├── advanced/          # Advanced programming examples
-│   ├── complex_example/   # Complex example with functions
-│   ├── math_test/         # Math library testing
-│   ├── uart_message/      # UART message examples
-│   └── uart_number/       # UART number output examples
-│
-├── self_tests/            # Unit tests
-│   ├── test_lexer.py
-│   ├── test_parser.py
-│   ├── test_interpreter.py
-│   ├── test_preprocessor.py
-│   └── run_tests.py       # Test runner
-│
-└── doc/                   # Documentation files
-    ├── LANGUAGE_SPEC.md
-    ├── ARCHITECTURE.md
-    ├── CODE_GENERATION.md
-    ├── CONTRIBUTING.md
-    ├── INCLUDE_MECHANISM.md
-    └── PROJECT_STRUCTURE.md
+├── emulator/            # Эмулятор (core, decoder, executor, memory, peripherals, gui, debugger)
+├── gui/                 # GUI (debugger, output_panel)
+├── self_tests/          # Юнит-тесты (test_lexer, test_parser, test_interpreter, test_preprocessor, test_emulator, run_tests)
+├── test_examples/       # Примеры по категориям (basic, hardware, operators, includes, advanced, …)
+├── libs/                # Библиотеки (.sc)
+├── isa/                 # Описание ISA (README, ISA.xlsx)
+└── int_pack/            # FASM (FASM.EXE), интерпретатор (interpreter_x64.exe), ISA.inc, макросы, заголовки
 ```
 
-### Core Components
+**Роль модулей:**
 
-- **`lexer.py`** - Converts source code into a stream of tokens
-- **`parser.py`** - Builds an Abstract Syntax Tree (AST) from tokens
-- **`interpreter.py`** - Executes the AST and manages runtime state
-- **`preprocessor.py`** - Handles `#include` directives before lexing
-- **`main.py`** - Orchestrates the compilation pipeline
+- **lexer.py** — разбивает исходный код на токены.
+- **parser.py** — строит AST.
+- **interpreter.py** — выполняет AST, управляет окружением и аппаратными функциями.
+- **preprocessor.py** — обрабатывает `#include` до лексирования.
+- **main.py** — цепочка: препроцессор → лексер → парсер → интерпретатор.
 
-## Features
+---
 
-### Data Types
-- Only `uint32` (32-bit unsigned integer): range 0 to 4,294,967,295
+## Архитектура
 
-### Control Flow
-- `if` / `else` statements
-- `while` loops
-- `for` loops (C-style: `for (init; condition; increment)`)
+**Цепочка обработки:**
 
-### Functions
-- Function definitions with parameters
-- Return values
-- Recursion supported
+```
+Исходный файл (.sc)
+    → Препроцессор (#include)
+    → Лексер (токены)
+    → Парсер (AST)
+    → Интерпретатор (результат)
+```
 
-### File Includes
-- `#include "filename"` or `#include <filename>` directives
-- Supports nested includes
-- Circular include detection
-- Relative path resolution
+**Генерация кода (compile.py):** AST → кодогенератор → FASM (.asm) → FASM.EXE → .bin, .mif.
 
-### Hardware Support
-- **Register Access**: Direct CPU register access (r0-r31)
-- **GPIO**: Digital I/O operations (gpio_set, gpio_read, gpio_write)
-- **UART**: Serial communication (uart_set_baud, uart_read, uart_write)
-- **Timer**: Hardware timer control (timer_set_mode, timer_start, timer_stop, etc.)
-- **Interrupts**: Interrupt service routines (ISRs)
-- **Bit Manipulation**: Built-in bit operations (set_bit, clear_bit, toggle_bit, get_bit)
-- **Delay Functions**: Software delays (delay_ms, delay_us, delay_cycles)
+**Регистры (кодогенератор):** r0–r10 — временные; r11–r25 — локальные переменные; r26–r30 — параметры функций; r31 — указатель команд. r30 также используется как указатель стека для локальных переменных.
 
-### Operators
-- **Arithmetic**: `+`, `-`, `*`, `/`, `%`
-- **Bitwise**: `&`, `|`, `^`, `~`, `<<`, `>>`
-- **Increment/Decrement**: `++`, `--` (both prefix and postfix)
-- **Relational**: `==`, `!=`, `<`, `<=`, `>`, `>=`
-- **Logical**: `&&`, `||`, `!`
+**Ошибки:** препроцессор (`PreprocessingError`), лексер (токен ERROR), парсер (`SyntaxError`), среда выполнения (`RuntimeError`).
 
-## Quick Example
+---
+
+## Спецификация языка
+
+### Типы данных
+
+- Единственный тип: **uint32** (0 … 2³²−1). Переполнение по модулю 2³².
+
+### Лексика
+
+- **Идентификаторы:** буква/подчёркивание, далее буквы, цифры, подчёркивание.
+- **Литералы:** десятичные числа; шестнадцатеричные: `0x`, `0X` (например, `0xFF`, `0x1A2B`).
+- **Ключевые слова:** `uint32`, `function`, `for`, `while`, `if`, `else`, `return`, `register`, `volatile`, `interrupt`.
+- **Операторы:** арифметика `+ - * / %`; сравнение `== != < <= > >=`; логика `&& || !`; побитовые `& | ^ ~ << >>`; присваивание `=`, `++`, `--` (префикс и постфикс).
+- **Комментарии:** `//` и `/* */`.
+
+### Синтаксис
+
+- Программа — набор определений функций. Точка входа — `main()` без параметров.
+- Переменные: `uint32 x;` или `uint32 y = 42;`.
+- Функции: `function name(param1, param2) { ... return value; }`. Параметры и возврат — uint32.
+- Управление: `if (cond) { }` / `if (cond) { } else { }`, `while (cond) { }`, `for (init; cond; step) { }`.
+- Массивы: `uint32 arr[N];` или `uint32 arr[N] = { ... };`. Частичная инициализация — остальное нули.
+- Указатели: объявление указателя, `&x`, `*ptr`, присваивание через `*ptr = value`, арифметика указателей.
+
+### Аппаратная поддержка
+
+- **Регистры:** `register uint32 r0` … `r31` (r31 только чтение).
+- **GPIO:** `gpio_set`, `gpio_read`, `gpio_write`.
+- **UART:** `uart_set_baud`, `uart_get_status`, `uart_read`, `uart_write`.
+- **Таймер:** `timer_set_mode`, `timer_set_period`, `timer_start`, `timer_stop`, `timer_reset`, `timer_get_value`, `timer_expired`.
+- **Прерывания:** `interrupt function`, `enable_interrupts`, `disable_interrupts`.
+- **Биты:** `set_bit`, `clear_bit`, `toggle_bit`, `get_bit`.
+- **Задержки:** `delay_ms`, `delay_us`, `delay_cycles`.
+
+### Пример
 
 ```c
 function add(uint32 a, uint32 b) {
@@ -219,63 +161,135 @@ function add(uint32 a, uint32 b) {
 
 function main() {
     uint32 result = add(5, 3);
-    return result;  // returns 8
+    return result;  // 8
 }
 ```
 
-## Testing
+---
 
-The project includes comprehensive unit tests for all components. Run all tests using:
+## Директива #include
+
+- Синтаксис: `#include "файл"` или `#include <файл>`.
+- Обработка до лексирования: содержимое файла подставляется в текст.
+- Порядок поиска: абсолютный путь → относительно текущего файла → относительно базовой директории → текущая рабочая директория.
+- Вложенные `#include` обрабатываются рекурсивно.
+- Циклические включения запрещены — ошибка препроцессора.
+- Расширение файла не важно (.h, .sc и т.д.). Поддержки `#define` нет.
+
+---
+
+## Компиляция в ассемблер и бинарник
+
+- **Регистры:** r0–r10 временные, r11–r25 локальные, r26–r30 параметры, r31 IP.
+- **Соглашение вызовов:** до 5 параметров в r26–r30, возврат в r0.
+- **Массивы:** глобальные — в секции данных; локальные — через стек (r30).
+- **Указатели и память:** адрес через метки/смещения, загрузка/сохранение через `lds`.
+- Условные переходы и циклы генерируются с использованием `cmovz`/меток и r31 где применимо.
+
+Ручная сборка:
+
+```bash
+int_pack/FASM.EXE путь/к/файлу.asm
+```
+
+Запуск бинарника:
+
+```bash
+int_pack/interpreter_x64.exe путь/к/файлу.bin
+```
+
+---
+
+## ISA и int_pack
+
+- **isa/** — описание набора команд (документация, ISA.xlsx).
+- **int_pack/** — FASM-транслятор, инструкции «как есть», макросы (в т.ч. `lds`, `entry`, `_push`/`_pop`, `ccall`). Регистр 31 — указатель команд; по адресу 0xFFFF:0xFFFE — 64-битный счётчик тиков (Little Endian).
+- Инструкции: nop, hlt, setu/getu/inu/outu, setg/getg/ing/outg, inm/outm, mov, not, add, sub, and, or, xor, shr, shl, sar, sal, shrd, shld, ror, rol, cmpa, cmpe, cmpb, cmovnz, cmovz.
+- Формат программы: `include "ISA.inc"` (или полный путь к ISA.inc), затем код. Для .mif используется fasm.exe; в пакете есть интерпретатор для .bin (UART эмулируется консолью, GPIO в интерпретаторе не поддерживаются).
+- Заголовки: uio.inc (print, input), math.inc (umul, деление, _bsr).
+
+Для компиляции интерпретатора из int_pack при необходимости подключается подмодуль.
+
+---
+
+## Примеры
+
+Примеры в `test_examples/` по категориям:
+
+| Категория    | Описание |
+|-------------|----------|
+| **basic/**  | sum_range.sc, nested_loops.sc, arrays.sc, pointer_example.sc, array_pointer.sc, pointer_function.sc, array_sum.sc, hello_world/ |
+| **hardware/** | gpio_blink.sc, uart_echo.sc, timer_example.sc, interrupt_example.sc, bit_manipulation.sc, bit_test_simple.sc, volatile_test.sc, заголовки gpio.h, uart.h, timer.h, hardware.h |
+| **operators/** | hex_literals.sc, relational_operators.sc, operator_precedence.sc, increment_decrement.sc |
+| **includes/** | nested_include.sc, circular_a.sc, circular_b.sc, utils.sc, math_ops.sc |
+| **advanced/** | fibonacci.sc, recursion.sc, gcd.sc, scope_test.sc, complex_nested.sc, overflow.sc, for_loops.sc |
+| **complex_example/** | complex_example.sc |
+| **math_test/** | test_div_simple.sc, test6.sc, div_lib.sc |
+| **uart_message/** | test5.sc |
+| **uart_number/** | uart_number.sc, uart_number_div.sc, t.sc, t2.sc и др. |
+
+Запуск примеров:
+
+```bash
+python main.py test_examples/basic/sum_range.sc
+python compile.py test_examples/hardware/gpio_blink.sc --run
+```
+
+---
+
+## Тестирование
+
+Запуск всех тестов:
 
 ```bash
 python self_tests/run_tests.py
 ```
 
-Or run individual test files:
+Отдельные наборы:
 
 ```bash
 python -m unittest self_tests.test_lexer
 python -m unittest self_tests.test_parser
 python -m unittest self_tests.test_interpreter
 python -m unittest self_tests.test_preprocessor
+python -m unittest self_tests.test_emulator
 ```
 
-### Test Coverage
+Используется стандартный `unittest`, без внешних зависимостей.
 
-- **Lexer Tests** (`test_lexer.py`): Token recognition, comment handling, whitespace, operators, error cases, line/column tracking
-- **Parser Tests** (`test_parser.py`): Function definitions, variable declarations, all statement types, expression parsing, nested structures, error cases
-- **Interpreter Tests** (`test_interpreter.py`): Arithmetic operations, variable scoping, function calls, control flow, increment/decrement, edge cases (overflow, division by zero, undefined variables/functions)
-- **Preprocessor Tests** (`test_preprocessor.py`): Include directive handling, nested includes, circular include detection, path resolution
+---
 
-All tests use Python's built-in `unittest` framework - no external dependencies required.
+## Разработка и контрибьюция
 
-## Features
+- Стиль кода: PEP 8, по возможности type hints и docstrings для классов и публичных методов.
+- Добавление оператора: новый тип токена и распознавание в лексере → парсер (при необходимости приоритет) → интерпретатор (evaluate_binary_op/evaluate_unary_op) → тесты и обновление описания языка.
+- Новая аппаратная функция: реализация в интерпретаторе, регистрация в `_register_hardware_functions()`, документация и пример в test_examples/hardware/.
+- Новый тип оператора/инструкции: AST в parser, разбор в parse_statement → выполнение в interpreter → тесты.
+- Коммиты: понятные сообщения; перед PR — прохождение тестов и актуализация документации.
 
-### Arrays and Pointers
-- Array declarations and initialization
-- Array element access and assignment
-- Pointer declarations and dereferencing
-- Address-of operator (`&`)
-- Pointer arithmetic
+---
 
-### Memory Management
-- Arrays are allocated in memory (data section) for better performance
-- r:30 is used as stack pointer for local variables
-- Efficient memory access patterns
+## Ограничения
 
-## Limitations
+- Нет строк и символов, нет чисел с плавающей точкой.
+- Единственный тип данных — uint32 (и int32 где реализовано).
+- Деление на ноль — ошибка времени выполнения.
+- Переполнение целых — по модулю 2³².
+- Поддерживается только `#include`, без `#define`.
 
-- No strings or characters
-- No floating-point numbers
-- Single data type only (uint32 and int32)
-- Division by zero causes runtime error
-- Integer overflow wraps around (modulo 2^32)
-- No `#define` macro support (only `#include` is supported)
+---
 
-## Development
+## История изменений
 
-See [doc/CONTRIBUTING.md](doc/CONTRIBUTING.md) for development guidelines and contribution instructions.
+- Документация сведена в один README; устаревшие упоминания структуры обновлены.
+- Примеры упрощены: объединены дубликаты (массивы, инкремент/декремент, циклы for), удалены избыточные и пустые папки.
+- Массивы размещаются в памяти (data section); r30 — указатель программного стека для переменных.
+- Удалён отладочный код (debug.log), улучшены типизация и сообщения об ошибках в codegen; добавлены docstrings для ключевых методов генерации кода.
 
-## License
+Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/), [Semantic Versioning](https://semver.org/lang/ru/).
 
-This is an educational project.
+---
+
+## Лицензия
+
+Образовательный проект.

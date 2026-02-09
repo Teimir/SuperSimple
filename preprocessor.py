@@ -1,8 +1,9 @@
 """
-Preprocessor for handling #include directives.
+Preprocessor for handling #include and #define directives.
 
 This module processes source files before lexing and parsing. It:
 - Expands #include directives by inserting file contents
+- Handles #define NAME [value] and replaces whole-word occurrences of NAME with value
 - Handles nested includes recursively
 - Detects circular include dependencies
 - Resolves file paths (relative and absolute)
@@ -12,7 +13,8 @@ The preprocessor is the first stage in the compilation pipeline.
 """
 
 import os
-from typing import List, Set
+import re
+from typing import Dict, List, Set, Optional, Tuple
 
 
 class PreprocessingError(Exception):
@@ -21,11 +23,12 @@ class PreprocessingError(Exception):
 
 
 class Preprocessor:
-    """Handles preprocessing of source files, including #include directives."""
+    """Handles preprocessing of source files, including #include and #define directives."""
     
     def __init__(self, base_dir: str = None):
         self.base_dir = base_dir or os.getcwd()
         self.included_files: Set[str] = set()
+        self.definitions: Dict[str, str] = {}  # macro name -> replacement text
     
     def resolve_path(self, filename: str, current_dir: str) -> str:
         """Resolve include file path relative to current directory."""
@@ -80,12 +83,31 @@ class Preprocessor:
         return self.process_content(content, current_dir)
     
     def process_content(self, content: str, current_dir: str = None) -> str:
-        """Process source content, expanding #include directives."""
+        """Process source content, expanding #include and #define directives."""
         lines = content.split('\n')
         result_lines = []
         
         for line_num, line in enumerate(lines, start=1):
             stripped = line.strip()
+            
+            # Check for #define directive
+            if stripped.startswith('#define'):
+                try:
+                    parsed = self.parse_define(line)
+                    if parsed:
+                        name, value = parsed
+                        self.definitions[name] = value
+                    # Skip this line (do not output)
+                except PreprocessingError as e:
+                    raise PreprocessingError(f"Line {line_num}: {e}")
+                continue
+            
+            # Check for #undef directive
+            if stripped.startswith('#undef'):
+                name = self.parse_undef(line)
+                if name is not None:
+                    self.definitions.pop(name, None)
+                continue
             
             # Check for #include directive
             if stripped.startswith('#include'):
@@ -100,7 +122,7 @@ class Preprocessor:
                         # Process the included file
                         included_content = self.process_file(include_path, current_dir)
                         
-                        # Add the included content
+                        # Add the included content (already expanded in that file's process_content)
                         result_lines.append(f"// Included from: {filename}")
                         result_lines.extend(included_content.split('\n'))
                         result_lines.append(f"// End include: {filename}")
@@ -112,8 +134,8 @@ class Preprocessor:
                         f"Invalid #include directive at line {line_num}: {stripped}"
                     )
             
-            # Regular line, add as-is
-            result_lines.append(line)
+            # Regular line: expand macros and add
+            result_lines.append(self.expand_macros(line))
         
         return '\n'.join(result_lines)
     
@@ -132,10 +154,60 @@ class Preprocessor:
         
         return None
     
+    def parse_define(self, line: str) -> Optional[Tuple[str, str]]:
+        """Parse #define directive. Returns (name, value) or None if invalid."""
+        stripped = line.strip()
+        if not stripped.startswith('#define'):
+            return None
+        rest = stripped[7:].strip()  # after '#define'
+        if not rest:
+            raise PreprocessingError("Invalid #define: missing macro name")
+        # First token is the macro name (C identifier: letter or _, then alnum or _)
+        match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)', rest)
+        if not match:
+            raise PreprocessingError(f"Invalid #define: invalid macro name in '{rest[:20]}...'")
+        name = match.group(1)
+        value = rest[match.end():].strip()
+        return (name, value)
+
+    def parse_undef(self, line: str) -> Optional[str]:
+        """Parse #undef directive. Returns macro name or None if invalid/empty."""
+        stripped = line.strip()
+        if not stripped.startswith('#undef'):
+            return None
+        rest = stripped[6:].strip()  # after '#undef'
+        if not rest:
+            return None
+        match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)', rest)
+        if not match:
+            return None
+        return match.group(1)
+
+    def expand_macros(self, line: str) -> str:
+        """Replace whole-word occurrences of defined macros with their values. Repeats until no change."""
+        if not self.definitions:
+            return line
+        # Replace longest names first to avoid partial matches (e.g. ABC vs AB)
+        names = sorted(self.definitions.keys(), key=len, reverse=True)
+        result = line
+        changed = True
+        while changed:
+            changed = False
+            for name in names:
+                value = self.definitions[name]
+                # Whole-word boundary: not inside another identifier
+                pattern = r'\b' + re.escape(name) + r'\b'
+                new_result = re.sub(pattern, lambda m: value, result)
+                if new_result != result:
+                    result = new_result
+                    changed = True
+        return result
+
     def preprocess(self, filepath: str) -> str:
         """Main preprocessing entry point."""
-        # Reset included files set for new preprocessing
+        # Reset state for new preprocessing
         self.included_files.clear()
+        self.definitions.clear()
         
         # Set base directory to the directory of the main file
         self.base_dir = os.path.dirname(os.path.abspath(filepath))

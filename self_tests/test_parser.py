@@ -6,7 +6,7 @@ import unittest
 from lexer import Lexer, TokenType
 from parser import Parser, Program, FunctionDef, VarDecl, Assignment, Return
 from parser import IfStmt, WhileStmt, ForStmt, Block, BinaryOp, Literal
-from parser import Identifier, UnaryOp, FunctionCall, Increment, Decrement
+from parser import Identifier, UnaryOp, FunctionCall, Increment, Decrement, AsmStmt, DoWhileStmt
 
 
 class TestParser(unittest.TestCase):
@@ -137,6 +137,17 @@ class TestParser(unittest.TestCase):
         self.assertIsInstance(while_stmt, WhileStmt)
         self.assertIsInstance(while_stmt.condition, BinaryOp)
         self.assertIsInstance(while_stmt.body, Block)
+
+    def test_do_while_statement(self):
+        """Test parsing do-while statement."""
+        source = "function main() { do { x = x + 1; } while (x < 5); return 0; }"
+        program = self.parse_source(source)
+        main_body = program.functions[0].body.statements
+        do_while_stmt = main_body[0]
+        self.assertIsInstance(do_while_stmt, DoWhileStmt)
+        self.assertIsInstance(do_while_stmt.body, Block)
+        self.assertIsInstance(do_while_stmt.condition, BinaryOp)
+        self.assertEqual(do_while_stmt.condition.op, "<")
     
     def test_for_statement(self):
         """Test parsing for statement."""
@@ -415,6 +426,18 @@ class TestParser(unittest.TestCase):
         self.assertEqual(var_decl1.initializer.value, 0)
         var_decl2 = main_body[1]
         self.assertEqual(var_decl2.initializer.value, 0xFFFFFFFF)
+
+    def test_asm_statement(self):
+        """Test parsing asm { ... }; produces AsmStmt with content."""
+        source = "function main() { asm { mov r:0, r:1 }; return 0; }"
+        program = self.parse_source(source)
+        main_body = program.functions[0].body.statements
+        self.assertGreaterEqual(len(main_body), 2)
+        asm_stmt = main_body[0]
+        self.assertIsInstance(asm_stmt, AsmStmt)
+        self.assertIn("mov", asm_stmt.content)
+        self.assertIn("r:0", asm_stmt.content)
+        self.assertIn("r:1", asm_stmt.content)
 
 
 if __name__ == '__main__':

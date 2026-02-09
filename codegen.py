@@ -20,17 +20,19 @@ from parser import (
     VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
     Block, FunctionCallStmt, Increment, Decrement,
     ArrayDecl, ArrayAccess, PointerDecl, AddressOf, Dereference,
-    ArrayAssignment, PointerAssignment, BreakStmt, ContinueStmt
+    ArrayAssignment, PointerAssignment, BreakStmt, ContinueStmt,
+    AsmStmt, DoWhileStmt
 )
 
 
 class LoopContext:
-    """Context for a loop (while or for) to support break/continue."""
-    def __init__(self, start_label: str, end_label: str, loop_type: str, increment_label: Optional[str] = None):
+    """Context for a loop (while, for, or do_while) to support break/continue."""
+    def __init__(self, start_label: str, end_label: str, loop_type: str, increment_label: Optional[str] = None, condition_label: Optional[str] = None):
         self.start_label = start_label
         self.end_label = end_label
-        self.loop_type = loop_type  # "while" or "for"
+        self.loop_type = loop_type  # "while", "for", or "do_while"
         self.increment_label = increment_label  # Only for for loops
+        self.condition_label = condition_label  # For do_while: continue jumps here
 
 
 class RegisterAllocator:
@@ -342,6 +344,8 @@ class CodeGenerator:
             self.generate_if(stmt)
         elif isinstance(stmt, WhileStmt):
             self.generate_while(stmt)
+        elif isinstance(stmt, DoWhileStmt):
+            self.generate_do_while(stmt)
         elif isinstance(stmt, ForStmt):
             self.generate_for(stmt)
         elif isinstance(stmt, Block):
@@ -376,9 +380,20 @@ class CodeGenerator:
             self.generate_break(stmt)
         elif isinstance(stmt, ContinueStmt):
             self.generate_continue(stmt)
+        elif isinstance(stmt, AsmStmt):
+            self.generate_asm(stmt)
         else:
             raise RuntimeError(f"Code generation error: Unknown statement type '{type(stmt).__name__}' in function '{self.current_function}'")
     
+    def generate_asm(self, stmt: AsmStmt) -> None:
+        """Emit inline assembly block content as raw lines into the output."""
+        for line in stmt.content.splitlines():
+            stripped = line.strip()
+            if stripped:
+                self.emit(stripped)
+            else:
+                self.code.append("")
+
     def generate_var_decl(self, decl: VarDecl) -> None:
         """Generate code for variable declaration."""
         # Check if this is a global variable
@@ -1216,6 +1231,26 @@ class CodeGenerator:
         finally:
             # Remove loop context from stack
             self.loop_stack.pop()
+
+    def generate_do_while(self, stmt: DoWhileStmt) -> None:
+        """Generate code for do-while loop: body first, then condition."""
+        start_label = self.generate_label("do_start")
+        condition_label = self.generate_label("do_condition")
+        end_label = self.generate_label("do_end")
+        loop_context = LoopContext(start_label, end_label, "do_while", condition_label=condition_label)
+        self.loop_stack.append(loop_context)
+        try:
+            self.emit_label(start_label)
+            self.generate_statement(stmt.body)
+            self.emit_label(condition_label)
+            condition_reg = self.generate_expression(stmt.condition)
+            self.emit(f"cmovz r:31, {self.get_register_name(condition_reg)}, {end_label} addr")
+            if condition_reg != 10:
+                self.reg_allocator.free_temp(condition_reg)
+            self.emit(f"mov r:31, {start_label} addr")
+            self.emit_label(end_label)
+        finally:
+            self.loop_stack.pop()
     
     def generate_for(self, stmt: ForStmt) -> None:
         """Generate code for for loop."""
@@ -1283,9 +1318,11 @@ class CodeGenerator:
             raise RuntimeError("continue statement outside of loop")
         
         loop_context = self.loop_stack[-1]
-        # For for loops, jump to increment section; for while loops, jump to start
+        # For for loops, jump to increment section; for do_while, jump to condition; for while, jump to start
         if loop_context.loop_type == "for" and loop_context.increment_label:
             self.emit(f"mov r:31, {loop_context.increment_label} addr")
+        elif loop_context.loop_type == "do_while" and loop_context.condition_label:
+            self.emit(f"mov r:31, {loop_context.condition_label} addr")
         else:
             self.emit(f"mov r:31, {loop_context.start_label} addr")
     

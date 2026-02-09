@@ -140,6 +140,36 @@ class TestInterpreter(unittest.TestCase):
         """
         result = self.interpret_source(source)
         self.assertEqual(result, 10)
+
+    def test_do_while_loop(self):
+        """Test do-while loop: body runs at least once, then condition."""
+        source = """
+        function main() {
+            uint32 x = 0;
+            do {
+                x = x + 1;
+            } while (x < 5);
+            return x;
+        }
+        """
+        result = self.interpret_source(source)
+        self.assertEqual(result, 5)
+
+    def test_do_while_break_continue(self):
+        """Test break and continue inside do-while."""
+        source = """
+        function main() {
+            uint32 x = 0;
+            do {
+                x = x + 1;
+                if (x == 2) { continue; }
+                if (x >= 4) { break; }
+            } while (1);
+            return x;
+        }
+        """
+        result = self.interpret_source(source)
+        self.assertEqual(result, 4)
     
     def test_increment_operator(self):
         """Test increment operator."""
@@ -492,6 +522,12 @@ class TestInterpreter(unittest.TestCase):
         source = "function main() { return 16 + 0x10; }"
         result = self.interpret_source(source)
         self.assertEqual(result, 32)  # 16 + 16 = 32
+
+    def test_asm_block_no_op(self):
+        """Test that asm { ... } in interpreter is no-op and program runs normally."""
+        source = "function main() { asm { mov r:0, r:1 }; return 42; }"
+        result = self.interpret_source(source)
+        self.assertEqual(result, 42)
 
 
 if __name__ == '__main__':

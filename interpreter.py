@@ -26,7 +26,8 @@ from parser import (
     VarDecl, Assignment, Return, IfStmt, WhileStmt, ForStmt,
     Block, FunctionCallStmt, Increment, Decrement,
     ArrayDecl, ArrayAccess, PointerDecl, AddressOf, Dereference,
-    ArrayAssignment, PointerAssignment, BreakStmt, ContinueStmt
+    ArrayAssignment, PointerAssignment, BreakStmt, ContinueStmt,
+    AsmStmt, DoWhileStmt
 )
 
 
@@ -223,6 +224,9 @@ class Interpreter:
         # Register mapping for variables
         self.register_map: Dict[str, int] = {}  # variable name -> register number
         
+        # One-time warning when asm {} is encountered (not supported in interpreter)
+        self._asm_warned: bool = False
+        
         # Register all functions
         for func in program.functions:
             self.functions[func.name] = func
@@ -319,6 +323,8 @@ class Interpreter:
             self.execute_if(stmt, env)
         elif isinstance(stmt, WhileStmt):
             self.execute_while(stmt, env)
+        elif isinstance(stmt, DoWhileStmt):
+            self.execute_do_while(stmt, env)
         elif isinstance(stmt, ForStmt):
             self.execute_for(stmt, env)
         elif isinstance(stmt, Block):
@@ -329,6 +335,8 @@ class Interpreter:
             self.execute_break(stmt, env)
         elif isinstance(stmt, ContinueStmt):
             self.execute_continue(stmt, env)
+        elif isinstance(stmt, AsmStmt):
+            self.execute_asm(stmt, env)
         else:
             raise RuntimeError(f"Unknown statement type: {type(stmt)}")
     
@@ -498,6 +506,19 @@ class Interpreter:
                 break
             except ContinueException:
                 continue
+
+    def execute_do_while(self, stmt: DoWhileStmt, env: Environment):
+        """Execute a do-while loop: body at least once, then check condition."""
+        while True:
+            try:
+                self.execute_statement(stmt.body, env)
+            except BreakException:
+                break
+            except ContinueException:
+                pass
+            condition = self.evaluate_expression(stmt.condition, env)
+            if condition == 0:
+                break
     
     def execute_for(self, for_stmt: ForStmt, env: Environment):
         """Execute a for loop."""
@@ -540,7 +561,13 @@ class Interpreter:
     def execute_continue(self, stmt: ContinueStmt, env: Environment):
         """Execute a continue statement."""
         raise ContinueException()
-    
+
+    def execute_asm(self, stmt: AsmStmt, env: Environment):
+        """Execute an inline assembly block. No-op in interpreter (asm is only emitted when compiling)."""
+        if not self._asm_warned:
+            sys.stderr.write("Warning: asm {} is not supported in interpreter; block is ignored.\n")
+            self._asm_warned = True
+
     def execute_function_call(self, call: FunctionCall, env: Environment) -> int:
         """Execute a function call and return its value."""
         # Check if this is a hardware library function

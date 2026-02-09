@@ -132,6 +132,76 @@ class TestPreprocessor(unittest.TestCase):
         self.assertIn("function b", result)
         self.assertIn("function main", result)
 
+    def test_define_simple(self):
+        """Test simple #define substitution."""
+        main_content = '#define N 10\nfunction main() { return N; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        self.assertIn("return 10;", result)
+        self.assertNotIn("return N;", result)
+
+    def test_define_empty_value(self):
+        """Test #define with no value (empty replacement)."""
+        main_content = '#define NOP\nfunction main() { return NOP 42; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        self.assertIn("return  42;", result)
+
+    def test_define_expression(self):
+        """Test #define with expression-like value."""
+        main_content = '#define SIZE 4 * 2\nfunction main() { uint32 x = SIZE; return 0; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        self.assertIn("uint32 x = 4 * 2;", result)
+
+    def test_define_whole_word_only(self):
+        """Test that macro is replaced only as whole word."""
+        main_content = '#define A 1\nfunction main() { uint32 A1 = A; uint32 BA = 0; return A; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        self.assertIn("uint32 A1 = 1;", result)
+        self.assertIn("uint32 BA = 0;", result)  # BA not replaced
+        self.assertIn("return 1;", result)
+
+    def test_define_nested(self):
+        """Test nested macro expansion (#define A B, #define B value)."""
+        main_content = '#define A B\n#define B 100\nfunction main() { return A; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        self.assertIn("return 100;", result)
+
+    def test_define_included_file(self):
+        """Test #define in included file expands in main."""
+        self.write_file("defs.sc", "#define MAX 255")
+        main_content = '#include "defs.sc"\nfunction main() { return MAX; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        self.assertIn("return 255;", result)
+
+    def test_define_invalid_missing_name(self):
+        """Test that #define with no name raises error."""
+        main_content = '#define \nfunction main() { return 0; }'
+        main_file = self.write_file("main.sc", main_content)
+        with self.assertRaises(PreprocessingError) as context:
+            self.preprocessor.preprocess(main_file)
+        self.assertIn("#define", str(context.exception).lower())
+
+    def test_undef_removes_macro(self):
+        """Test that #undef stops macro substitution."""
+        main_content = '#define A 1\n#undef A\nfunction main() { return A; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        # A should not be replaced (remains as identifier A)
+        self.assertIn("return A;", result)
+        self.assertNotIn("return 1;", result)
+
+    def test_undef_nonexistent_no_error(self):
+        """Test that #undef of non-existent name does not raise."""
+        main_content = '#undef NEVER_DEFINED\nfunction main() { return 0; }'
+        main_file = self.write_file("main.sc", main_content)
+        result = self.preprocessor.preprocess(main_file)
+        self.assertIn("function main", result)
+
 
 if __name__ == '__main__':
     unittest.main()

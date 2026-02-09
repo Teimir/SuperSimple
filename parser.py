@@ -158,6 +158,15 @@ class WhileStmt(Statement):
         return f"WhileStmt({self.condition}, {self.body})"
 
 
+class DoWhileStmt(Statement):
+    def __init__(self, body: Statement, condition: Expression):
+        self.body = body
+        self.condition = condition
+
+    def __repr__(self):
+        return f"DoWhileStmt({self.body}, {self.condition})"
+
+
 class ForStmt(Statement):
     def __init__(self, init: Optional[Statement], condition: Optional[Expression], 
                  increment: Optional[Statement], body: Statement):
@@ -219,6 +228,15 @@ class ContinueStmt(Statement):
     """Continue statement (continue;)."""
     def __repr__(self):
         return "ContinueStmt()"
+
+
+class AsmStmt(Statement):
+    """Inline assembly block: asm { ... }."""
+    def __init__(self, content: str):
+        self.content = content
+
+    def __repr__(self):
+        return f"AsmStmt({repr(self.content)})"
 
 
 class ArrayDecl(Statement):
@@ -473,6 +491,10 @@ class Parser:
         if token.type == TokenType.IF:
             return self.parse_if()
         
+        # Do-while statement (check before while)
+        if token.type == TokenType.DO:
+            return self.parse_do_while()
+        
         # While statement
         if token.type == TokenType.WHILE:
             return self.parse_while()
@@ -488,6 +510,10 @@ class Parser:
         # Continue statement
         if token.type == TokenType.CONTINUE:
             return self.parse_continue()
+        
+        # Inline assembly block: asm { ... }
+        if token.type == TokenType.ASM:
+            return self.parse_asm()
         
         # Block
         if token.type == TokenType.LBRACE:
@@ -700,6 +726,13 @@ class Parser:
         self.expect(TokenType.CONTINUE)
         self.expect(TokenType.SEMICOLON)
         return ContinueStmt()
+
+    def parse_asm(self) -> AsmStmt:
+        """Parse an inline assembly block: asm { ... };"""
+        self.expect(TokenType.ASM)
+        block_token = self.expect(TokenType.ASM_BLOCK, "Expected asm block content")
+        self.expect(TokenType.SEMICOLON)
+        return AsmStmt(block_token.value)
     
     def parse_if(self) -> IfStmt:
         """Parse an if statement."""
@@ -724,6 +757,17 @@ class Parser:
         self.expect(TokenType.RPAREN)
         body = self.parse_statement()
         return WhileStmt(condition, body)
+
+    def parse_do_while(self) -> DoWhileStmt:
+        """Parse a do-while statement: do body while (condition);"""
+        self.expect(TokenType.DO)
+        body = self.parse_statement()
+        self.expect(TokenType.WHILE)
+        self.expect(TokenType.LPAREN)
+        condition = self.parse_expression()
+        self.expect(TokenType.RPAREN)
+        self.expect(TokenType.SEMICOLON)
+        return DoWhileStmt(body, condition)
     
     def parse_for(self) -> ForStmt:
         """Parse a for statement."""

@@ -10,12 +10,12 @@ class TestLexer(unittest.TestCase):
     
     def test_keywords(self):
         """Test keyword tokenization."""
-        source = "uint32 function for while if else return"
+        source = "uint32 function do for while if else return"
         lexer = Lexer(source)
         tokens = lexer.tokenize()
         
         expected_types = [
-            TokenType.UINT32, TokenType.FUNCTION, TokenType.FOR,
+            TokenType.UINT32, TokenType.FUNCTION, TokenType.DO, TokenType.FOR,
             TokenType.WHILE, TokenType.IF, TokenType.ELSE, TokenType.RETURN,
             TokenType.EOF
         ]
@@ -245,6 +245,31 @@ class TestLexer(unittest.TestCase):
         self.assertEqual(actual_types, expected_types)
         self.assertEqual(non_eof[1].value, "myUint32")
         self.assertEqual(non_eof[3].value, "myFunction")
+
+    def test_asm_block_simple(self):
+        """Test asm { ... } tokenization: ASM then ASM_BLOCK with raw content."""
+        source = "asm { mov r:0, r:1 };"
+        lexer = Lexer(source)
+        tokens = lexer.tokenize()
+        non_eof = [t for t in tokens if t.type != TokenType.EOF]
+        self.assertGreaterEqual(len(non_eof), 2)
+        self.assertEqual(non_eof[0].type, TokenType.ASM)
+        self.assertEqual(non_eof[0].value, "asm")
+        self.assertEqual(non_eof[1].type, TokenType.ASM_BLOCK)
+        self.assertIn("mov", non_eof[1].value)
+        self.assertIn("r:0", non_eof[1].value)
+        self.assertIn("r:1", non_eof[1].value)
+
+    def test_asm_block_nested_braces(self):
+        """Test asm block with nested braces in content."""
+        source = "asm { mov r:0, 1; ; inner { label } };"
+        lexer = Lexer(source)
+        tokens = lexer.tokenize()
+        non_eof = [t for t in tokens if t.type != TokenType.EOF]
+        self.assertGreaterEqual(len(non_eof), 2)
+        self.assertEqual(non_eof[0].type, TokenType.ASM)
+        self.assertEqual(non_eof[1].type, TokenType.ASM_BLOCK)
+        self.assertIn("inner { label }", non_eof[1].value)
 
 
 if __name__ == '__main__':

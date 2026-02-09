@@ -32,6 +32,8 @@ class TokenType(Enum):
     REGISTER = "REGISTER"
     VOLATILE = "VOLATILE"
     INTERRUPT = "INTERRUPT"
+    ASM = "ASM"
+    DO = "DO"
     
     # Identifiers and literals
     IDENTIFIER = "IDENTIFIER"
@@ -74,6 +76,7 @@ class TokenType(Enum):
     # Special
     EOF = "EOF"
     ERROR = "ERROR"
+    ASM_BLOCK = "ASM_BLOCK"
 
 
 class Token:
@@ -164,6 +167,34 @@ class Lexer:
             self.advance()
         return self.source[start:self.pos]
     
+    def peek_after_whitespace(self) -> Optional[str]:
+        """Return next non-whitespace character without advancing, or None."""
+        temp_pos = self.pos
+        while temp_pos < len(self.source) and self.source[temp_pos] in ' \t\r\n':
+            temp_pos += 1
+        return self.source[temp_pos] if temp_pos < len(self.source) else None
+
+    def read_asm_block_content(self) -> str:
+        """Read raw content until matching closing '}' (count nested braces). Caller consumed '{'."""
+        start_line = self.line
+        start_column = self.column
+        content_start = self.pos
+        depth = 1
+        while self.current_char() is not None and depth > 0:
+            c = self.current_char()
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth > 0:
+                    self.advance()
+                else:
+                    # Don't include the closing } in content; advance and stop
+                    self.advance()
+                    return self.source[content_start:self.pos - 1]
+            self.advance()
+        raise SyntaxError(f"Unterminated asm block at line {start_line}, column {start_column}")
+
     def read_number(self) -> str:
         """Read a numeric literal (decimal or hexadecimal)."""
         start = self.pos
@@ -214,6 +245,7 @@ class Lexer:
                     'uint32': TokenType.UINT32,
                     'int32': TokenType.INT32,
                     'function': TokenType.FUNCTION,
+                    'do': TokenType.DO,
                     'for': TokenType.FOR,
                     'while': TokenType.WHILE,
                     'if': TokenType.IF,
@@ -224,7 +256,17 @@ class Lexer:
                     'register': TokenType.REGISTER,
                     'volatile': TokenType.VOLATILE,
                     'interrupt': TokenType.INTERRUPT,
+                    'asm': TokenType.ASM,
                 }
+                # Special case: asm { ... } - emit ASM then ASM_BLOCK (raw content)
+                if identifier == 'asm' and self.peek_after_whitespace() == '{':
+                    self.tokens.append(Token(TokenType.ASM, identifier, line, column))
+                    self.skip_whitespace()
+                    self.advance()  # consume '{'
+                    block_line, block_col = self.line, self.column
+                    content = self.read_asm_block_content()
+                    self.tokens.append(Token(TokenType.ASM_BLOCK, content, block_line, block_col))
+                    continue
                 token_type = keyword_map.get(identifier, TokenType.IDENTIFIER)
                 self.tokens.append(Token(token_type, identifier, line, column))
                 continue

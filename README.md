@@ -181,7 +181,7 @@ SuperSimple/
 ├── compile.py          # Скрипт компиляции
 ├── emulator_main.py    # Точка входа эмулятора (если используется)
 │
-├── emulator/            # Эмулятор (core, decoder, executor, memory, peripherals, debugger)
+├── emulator/            # Эмулятор (core, decoder, executor, memory, peripherals, debugger; без GUI)
 ├── self_tests/          # Юнит-тесты (test_lexer, test_parser, test_interpreter, test_preprocessor, test_emulator, run_tests)
 ├── test_examples/       # Примеры по категориям (basic, hardware, operators, includes, advanced, …)
 ├── libs/                # Библиотеки (.sc)
@@ -384,6 +384,7 @@ python -m unittest self_tests.test_emulator
 
 ## История изменений
 
+- GUI полностью удалён: удалены `gui_main.py` и `emulator/gui.py`.
 - Документация сведена в один README; устаревшие упоминания структуры обновлены.
 - Примеры упрощены: объединены дубликаты (массивы, инкремент/декремент, циклы for), удалены избыточные и пустые папки.
 - Массивы размещаются в памяти (data section); r30 — указатель программного стека для переменных.
